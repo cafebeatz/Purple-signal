@@ -1,0 +1,110 @@
+{
+  "project_title": "Gerador de Sinais IQ Option & PolariumBroker - Didi Fluxo Bot",
+  "app_type": "dashboard",
+  "language": "pt-BR",
+  "identity_and_theme": {
+    "archetype": "ARCHETYPE 2: THE PERFORMANCE PRO (Tactical Trading Terminal)",
+    "vibe": "High-frequency precision, real-time signal command center, institutional dark mode with intense glowing CALL/PUT indicators",
+    "theme_mode": "dark",
+    "base_background": "#080A0F",
+    "surface_cards": "#0F131C",
+    "surface_hover": "#161D2B",
+    "border_color": "#1E293B",
+    "border_highlight": "#334155"
+  },
+  "colors": {
+    "background": "#080A0F",
+    "surface": "#0F131C",
+    "surface_secondary": "#161D2A",
+    "surface_tertiary": "#1E293B",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "text_muted": "#64748B",
+    "call_green": "#00E676",
+    "call_green_glow": "rgba(0, 230, 118, 0.25)",
+    "put_red": "#FF3D00",
+    "put_red_glow": "rgba(255, 61, 0, 0.25)",
+    "accent_cyan": "#00E5FF",
+    "accent_gold": "#FFC107",
+    "broker_iq_option": "#FF5722",
+    "broker_polarium": "#00B0FF"
+  },
+  "typography": {
+    "heading_font": "Outfit, system-ui, sans-serif",
+    "body_font": "Inter, system-ui, sans-serif",
+    "mono_font": "JetBrains Mono, monospace (mandatory for live prices, timers, winrates, RSI, MACD values)",
+    "font_rules": [
+      "Headings must be bold/black with tracking-tight",
+      "All numeric values (prices, win rates, RSI levels, countdown timers) MUST use font-mono and tabular-nums",
+      "Direction signals (CALL/PUT) must be uppercase text-3xl to text-5xl with heavy weight and glowing drop-shadow"
+    ]
+  },
+  "layout_strategy": {
+    "grid_mode": "MODE B: High Density Terminal Grid",
+    "header": "Sticky glassmorphism nav bar (bg-[#080A0F]/90 backdrop-blur-md) with Broker Connection Status, Account Type selector (DEMO/REAL), Timeframe dropdown (M1, M5, M15), and Live Scanning Toggle (INICIAR/PARAR ANÁLISE)",
+    "main_grid": "3-column responsive layout: Left sidebar for Broker credentials & scanner parameters; Middle main panel for the HERO 'Melhor Ativo' (Best Asset) live signal card & strategy breakdown; Right sidebar for live market asset monitor feed & signal history log",
+    "padding_philosophy": "Compact yet distinct borders (p-4 md:p-6), strict 1px solid borders separating terminal regions instead of fuzzy shadows"
+  },
+  "strategy_engine_details": {
+    "strategy_name": "Estratégia Didi Fluxo MACD + RSI",
+    "direction_rule": "Cruzamento Média Móvel 9 (MA9) x 21 (MA21)",
+    "trigger_rule": "Cruzamento das linhas MACD (Histograma + Sinal)",
+    "confirmation_rules": [
+      "RSI (14) na zona de confirmação de força",
+      "Agulhada do Didi (Didi Index: DI+ cruzando DI- no ponto de agulha)"
+    ],
+    "assets_scanned": "Todos os pares Forex / OTC disponíveis na corretora em tempo real"
+  },
+  "component_guidelines": {
+    "login_auth_screen": "Clean dark card modal with JWT authentication, smooth tab switcher for Login/Cadastro, background subtended by grainy high-tech dark chart visuals.",
+    "broker_connection_card": "Connection panel with broker selector tabs (IQ Option / PolariumBroker), email/password inputs, API status badge (Conectado / Desconectado / Autenticando), and account balance display (BRL / USD).",
+    "hero_best_asset_card": "The center piece of the dashboard. Highlights the #1 ranked asset right now (e.g. EUR/USD OTC). Shows Signal Direction badge (COMPRA / CALL green or VENDA / PUT red), signal confidence gauge percentage (e.g. 94%), expiration timeframe (e.g. 5 Minutos), exact entry price, countdown to next candle, and 4 indicator confirmation lights.",
+    "indicator_status_badges": [
+      "Cruzamento MA 9/21: ALTA / BAIXA",
+      "Gatilho MACD: CRUZADO COMPRA / VENDA",
+      "Confirmação RSI: 68.4 (FORTE COMPRA)",
+      "Agulhada do Didi: DI+ > DI- (AGULHADA CONFIRMADA)"
+    ],
+    "asset_scanner_list": "Real-time scanning ticker list showing top 5-10 assets with their calculated confluence score, updated as the background scanner evaluates market ticks.",
+    "signal_history_table": "Table with filterable columns: Horário, Ativo, Corretora, Direção, Taxa de Entrada, Resultado (WIN / LOSS / PENDENTE), Assertividade Geral (%).",
+    "micro_interactions": "Animated pulse dot on active scanner; glowing border transition on signal change; sound toggle or audio alert indicator on high-confidence signal."
+  },
+  "media": {
+    "trading_bg_1": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwxfHxmb3JleCUyMHN0b2NrJTIwbWFya2V0JTIwdHJhZGluZyUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzk0NjA2NTgzfDA&ixlib=rb-4.1.0&q=85",
+    "trading_bg_2": "https://images.unsplash.com/photo-1651341050677-24dba59ce0fd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwzfHxmb3JleCUyMHN0b2NrJTIwbWFya2V0JTIwdHJhZGluZyUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzk0NjA2NTgzfDA&ixlib=rb-4.1.0&q=85",
+    "trading_bg_3": "https://images.unsplash.com/photo-1590283603385-17ffb3a7f29f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHw0fHxmb3JleCUyMHN0b2NrJTIwbWFya2V0JTIwdHJhZGluZyUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzk0NjA2NTgzfDA&ixlib=rb-4.1.0&q=85"
+  },
+  "testing_and_accessibility": {
+    "mandatory_data_testid": [
+      "login-email-input",
+      "login-password-input",
+      "login-submit-button",
+      "broker-select-iqoption",
+      "broker-select-polarium",
+      "broker-email-input",
+      "broker-password-input",
+      "broker-connect-button",
+      "broker-status-badge",
+      "account-type-toggle",
+      "timeframe-select",
+      "start-scan-button",
+      "best-asset-card",
+      "signal-direction-badge",
+      "signal-confidence-rate",
+      "indicator-ma-status",
+      "indicator-macd-status",
+      "indicator-rsi-status",
+      "indicator-didi-status",
+      "signal-history-table",
+      "logout-button"
+    ],
+    "contrast_compliance": "High contrast text (#F8FAFC) on dark surfaces (#0F131C). Call buttons and badges use vivid green (#00E676) and red (#FF3D00) with dark text overlay or heavy contrast text."
+  },
+  "instructions_to_main_agent": [
+    "Ensure all user-facing UI text is written in natural Portuguese (pt-BR).",
+    "Use Lucide icons (lucide-react) or @phosphor-icons/react for indicators: TrendingUp, TrendingDown, Zap, ShieldCheck, RefreshCw, Radio, Activity, Cpu, Sliders, Play, Square, User, Lock, CheckCircle, AlertTriangle.",
+    "Implement Sonner toasts for connection status changes (e.g., 'Conectado à IQ Option com sucesso', 'Sinal detectado: EUR/USD CALL').",
+    "Include a dynamic simulated real-time market engine when live broker connection is in demo mode or active scanning mode, computing live MA9, MA21, MACD, RSI, and Didi Needle indicators across major forex pairs (EUR/USD, GBP/USD, USD/JPY, AUD/CAD, EUR/JPY, etc.).",
+    "Ensure every interactive element has its corresponding data-testid attribute."
+  ]
+}
