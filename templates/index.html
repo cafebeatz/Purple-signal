@@ -1,790 +1,358 @@
 <!doctype html>
-<html lang="pt-BR" class="dark">
+<html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#080A0F" />
-  <title>Didi Fluxo Bot — Terminal de Sinais IQ Option & PolariumBroker</title>
-
-  <!-- Fontes Oficiais -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet" />
-
-  <!-- Tailwind CSS & Lucide Icons via CDN -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Didi Fluxo Bot — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
-
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'system-ui', 'sans-serif'],
-            display: ['Outfit', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-          colors: {
-            terminal: {
-              bg: '#080A0F',
-              surface: '#0F131C',
-              secondary: '#161D2A',
-              tertiary: '#1E293B',
-              border: '#1E293B',
-              highlight: '#334155',
-            },
-            call: '#00E676',
-            put: '#FF3D00',
-            cyan: '#00E5FF',
-            gold: '#FFC107',
-            iq: '#FF5722',
-            polarium: '#00B0FF',
-          }
-        }
-      }
-    }
-  </script>
-
   <style>
-    body {
-      background-color: #080A0F;
-      color: #F8FAFC;
-      font-family: 'Inter', sans-serif;
-    }
-    .font-display { font-family: 'Outfit', sans-serif; }
-    .font-mono-num { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
-    .glow-call { box-shadow: 0 0 28px rgba(0, 230, 118, 0.22); border-color: rgba(0, 230, 118, 0.5) !important; }
-    .glow-put { box-shadow: 0 0 28px rgba(255, 61, 0, 0.22); border-color: rgba(255, 61, 0, 0.5) !important; }
-    .text-glow-call { text-shadow: 0 0 20px rgba(0, 230, 118, 0.55); }
-    .text-glow-put { text-shadow: 0 0 20px rgba(255, 61, 0, 0.55); }
-
-    /* Scrollbar discreta */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #080A0F; }
-    ::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    :root{color-scheme:dark;--bg:#080b12;--panel:#101725;--line:#243044;--muted:#8b9ab0;--cyan:#22d3ee;--green:#34d399;--red:#fb7185;--gold:#fbbf24}
+    *{box-sizing:border-box} body{margin:0;background:radial-gradient(ellipse at top,#172235 0,#080b12 48%);color:#e5edf8;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+    .panel{background:linear-gradient(145deg,rgba(19,29,45,.96),rgba(12,18,29,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0005}
+    .muted{color:var(--muted)} .field{width:100%;background:#080e18;border:1px solid #2a3950;border-radius:9px;padding:10px 12px;color:#e5edf8;outline:none}
+    .field:focus{border-color:var(--cyan)} .btn{border-radius:9px;padding:10px 14px;font-weight:700;transition:.15s}
+    .btn-primary{background:linear-gradient(90deg,#0891b2,#06b6d4);color:#04131a}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+    .btn-secondary{background:#1b293b;border:1px solid #33445c;color:#dce8f8}.btn-danger{background:#4a1f2a;border:1px solid #713344;color:#fecdd3}
+    .pill{border:1px solid #33445c;background:#111c2b;border-radius:999px;padding:4px 9px;font-size:11px}
+    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.ok{background:#34d399;box-shadow:0 0 10px #34d39988}.dot.bad{background:#fb7185}
+    .signal-call{color:#34d399}.signal-put{color:#fb7185}
+    .row-hover:hover{background:#172438}.hidden{display:none!important}
+    .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{padding:10px 12px;border-bottom:1px solid #253247;text-align:left;font-size:12px} th{color:#91a3bb;font-weight:600}
+    .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
+    input[type=range]{accent-color:#22d3ee}
+    @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
   </style>
 </head>
-<body class="min-h-screen bg-[#080A0F] text-[#F8FAFC] selection:bg-[#00E5FF]/20 selection:text-[#00E5FF]">
-
-  <!-- Container de Notificações (Toasts) -->
-  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
-
-  <!-- ================= TELA DE AUTENTICAÇÃO ================= -->
-  <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
-    <div class="absolute inset-0 bg-cover bg-center opacity-15" style="background-image: url('https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1600&q=80');"></div>
-    <div class="absolute inset-0 bg-gradient-to-b from-[#080A0F]/80 via-[#080A0F]/90 to-[#080A0F]"></div>
-
-    <div class="relative z-10 w-full max-w-md bg-[#0F131C] border border-[#1E293B] rounded-xl p-6 md:p-8 shadow-2xl">
+<body>
+  <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
+    <div class="panel w-full max-w-md p-7">
       <div class="flex items-center gap-3 mb-6">
-        <div class="w-10 h-10 rounded-lg bg-[#00E676]/10 border border-[#00E676]/30 flex items-center justify-center text-[#00E676]">
-          <i data-lucide="activity" class="w-6 h-6"></i>
-        </div>
-        <div>
-          <h1 class="font-display font-black text-xl tracking-tight text-white">DIDI FLUXO BOT</h1>
-          <p class="text-xs text-[#94A3B8]">Terminal Tático • IQ Option & PolariumBroker</p>
-        </div>
+        <div class="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
+        <div><h1 class="text-2xl font-black tracking-wide">DIDI <span class="text-cyan-300">FLUXO</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
       </div>
-
-      <!-- Abas Login / Cadastro -->
-      <div class="grid grid-cols-2 bg-[#080A0F] p-1 rounded-lg border border-[#1E293B] mb-6">
-        <button id="tab-login" onclick="switchAuthTab('login')" class="py-2 text-xs font-semibold rounded-md bg-[#161D2A] text-white transition">ENTRAR</button>
-        <button id="tab-register" onclick="switchAuthTab('register')" class="py-2 text-xs font-semibold rounded-md text-[#94A3B8] hover:text-white transition">CADASTRAR</button>
+      <div class="flex gap-2 mb-5">
+        <button id="mode-login" class="btn btn-primary flex-1" type="button">Entrar</button>
+        <button id="mode-register" class="btn btn-secondary flex-1" type="button">Criar conta</button>
       </div>
-
-      <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
-        <div id="register-name-field" class="hidden">
-          <label class="block text-xs font-medium text-[#94A3B8] mb-1.5">Nome do Operador</label>
-          <input type="text" id="auth-name" placeholder="Seu nome" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-sm text-white outline-none transition" />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-[#94A3B8] mb-1.5">E-mail de Acesso</label>
-          <div class="relative">
-            <i data-lucide="user" class="w-4 h-4 text-[#64748B] absolute left-3.5 top-3"></i>
-            <input type="email" id="auth-email" data-testid="login-email-input" required placeholder="operador@dominio.com" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg pl-10 pr-3.5 py-2.5 text-sm text-white outline-none transition" />
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-[#94A3B8] mb-1.5">Senha</label>
-          <div class="relative">
-            <i data-lucide="lock" class="w-4 h-4 text-[#64748B] absolute left-3.5 top-3"></i>
-            <input type="password" id="auth-password" data-testid="login-password-input" required placeholder="••••••••" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg pl-10 pr-3.5 py-2.5 text-sm text-white outline-none transition" />
-          </div>
-        </div>
-
-        <button type="submit" data-testid="login-submit-button" class="w-full py-3 rounded-lg bg-[#00E676] hover:bg-[#00c865] text-[#080A0F] font-display font-extrabold text-sm tracking-wide transition flex items-center justify-center gap-2">
-          <span id="auth-submit-text">ACESSAR TERMINAL</span>
-          <i data-lucide="zap" class="w-4 h-4"></i>
-        </button>
+      <form id="auth-form" class="space-y-3">
+        <div id="name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" autocomplete="name"></div>
+        <div><label class="text-xs muted">E-mail</label><input id="auth-email" class="field mt-1" type="email" required autocomplete="username"></div>
+        <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required autocomplete="current-password"></div>
+        <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
       </form>
+      <p id="auth-error" class="text-sm text-rose-300 mt-4" role="alert"></p>
+      <p class="text-xs muted mt-5">A autenticação é validada pelo servidor. Sem resposta válida da API, o painel não libera o acesso.</p>
     </div>
   </div>
 
-  <!-- ================= TERMINAL PRINCIPAL ================= -->
-  <div id="dashboard-screen" class="hidden min-h-screen flex flex-col">
-
-    <!-- Sticky Header Glassmorphism -->
-    <header class="sticky top-0 z-40 bg-[#080A0F]/90 backdrop-blur-md border-b border-[#1E293B] px-4 md:px-6 py-3">
-      <div class="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
-        <!-- Marca -->
-        <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-lg bg-[#00E676]/10 border border-[#00E676]/30 flex items-center justify-center text-[#00E676]">
-            <i data-lucide="cpu" class="w-5 h-5"></i>
-          </div>
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="font-display font-black text-base md:text-lg tracking-tight text-white">DIDI FLUXO BOT</span>
-              <span class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#161D2A] border border-[#334155] text-[#00E5FF]">PRO v2.6</span>
-            </div>
-            <p class="text-[11px] text-[#64748B] hidden sm:block">Estratégia MA 9/21 + MACD + RSI + Agulhada do Didi</p>
-          </div>
-        </div>
-
-        <!-- Controles Globais -->
-        <div class="flex flex-wrap items-center gap-2 md:gap-3">
-          <!-- Status Corretora -->
-          <div data-testid="broker-status-badge" id="header-broker-status" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#1E293B] text-xs font-medium text-[#94A3B8]">
-            <span id="status-dot" class="w-2 h-2 rounded-full bg-[#64748B]"></span>
-            <span id="status-text">Desconectado</span>
-          </div>
-
-          <!-- Conta DEMO / REAL -->
-          <button data-testid="account-type-toggle" id="account-type-btn" onclick="toggleAccountType()" class="px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#FFC107]/40 text-[#FFC107] font-mono-num font-bold text-xs tracking-wider hover:bg-[#161D2B] transition">
-            CONTA: DEMO
-          </button>
-
-          <!-- Timeframe -->
-          <select data-testid="timeframe-select" id="timeframe-select" onchange="changeTimeframe()" class="bg-[#0F131C] border border-[#1E293B] text-white font-mono-num text-xs font-bold rounded-lg px-3 py-1.5 outline-none focus:border-[#00E5FF]">
-            <option value="M1">M1 (1 Min)</option>
-            <option value="M5" selected>M5 (5 Min)</option>
-            <option value="M15">M15 (15 Min)</option>
-          </select>
-
-          <!-- Botão Iniciar / Parar Scanner -->
-          <button data-testid="start-scan-button" id="scan-toggle-btn" onclick="toggleScanner()" class="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#00E676] hover:bg-[#00c865] text-[#080A0F] font-display font-extrabold text-xs tracking-wide transition">
-            <i data-lucide="play" id="scan-icon" class="w-3.5 h-3.5 fill-current"></i>
-            <span id="scan-btn-text">INICIAR ANÁLISE</span>
-          </button>
-
-          <!-- Som -->
-          <button onclick="toggleSound()" id="sound-btn" title="Alternar Alerta Sonoro" class="p-2 rounded-lg bg-[#0F131C] border border-[#1E293B] text-[#00E5FF] hover:bg-[#161D2B] transition">
-            <i data-lucide="volume-2" id="sound-icon" class="w-4 h-4"></i>
-          </button>
-
-          <!-- Sair -->
-          <button data-testid="logout-button" onclick="handleLogout()" title="Sair do Terminal" class="p-2 rounded-lg bg-[#0F131C] border border-[#1E293B] text-[#94A3B8] hover:text-[#FF3D00] hover:border-[#FF3D00]/40 transition">
-            <i data-lucide="log-out" class="w-4 h-4"></i>
-          </button>
-        </div>
+  <main id="dashboard" class="hidden min-h-screen p-3 md:p-5">
+    <header class="header-wrap flex justify-between gap-4 mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
+        <div><h1 class="text-xl md:text-2xl font-black">DIDI <span class="text-cyan-300">FLUXO BOT</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
+        <span class="pill flex items-center gap-2"><span id="broker-dot" class="dot"></span><span id="broker-status">Corretora desconectada</span></span>
+        <button id="logout-btn" class="btn btn-secondary text-sm" type="button">Sair</button>
       </div>
     </header>
 
-    <!-- Grid Principal 3 Colunas -->
-    <main class="flex-1 max-w-[1600px] w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
-
-      <!-- COLUNA ESQUERDA: Conexão Corretora & Parâmetros (3 cols) -->
-      <section class="lg:col-span-3 space-y-4">
-        <!-- Card Conexão Corretora -->
-        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="font-display font-bold text-sm uppercase tracking-wider text-white flex items-center gap-2">
-              <i data-lucide="shield-check" class="w-4 h-4 text-[#00E5FF]"></i>
-              Corretora API
-            </h2>
-            <span id="balance-display" class="font-mono-num text-xs font-bold text-[#00E676]">R$ 10.000,00</span>
-          </div>
-
-          <!-- Seletor IQ Option / PolariumBroker -->
-          <div class="grid grid-cols-2 gap-2 mb-4">
-            <button type="button" data-testid="broker-select-iqoption" id="btn-broker-iq" onclick="selectBroker('IQ Option')" class="py-2 px-2 rounded-lg border border-[#FF5722] bg-[#FF5722]/15 text-white font-semibold text-xs transition">
-              IQ Option
-            </button>
-            <button type="button" data-testid="broker-select-polarium" id="btn-broker-polarium" onclick="selectBroker('PolariumBroker')" class="py-2 px-2 rounded-lg border border-[#1E293B] bg-[#080A0F] text-[#94A3B8] hover:text-white font-semibold text-xs transition">
-              PolariumBroker
-            </button>
-          </div>
-
-          <form onsubmit="connectBroker(event)" class="space-y-3">
-            <div>
-              <label class="block text-[11px] text-[#94A3B8] mb-1">E-mail da Corretora</label>
-              <input type="email" data-testid="broker-email-input" id="broker-email" required placeholder="conta@corretora.com" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg px-3 py-2 text-xs text-white outline-none" />
-            </div>
-            <div>
-              <label class="block text-[11px] text-[#94A3B8] mb-1">Senha da Corretora</label>
-              <input type="password" data-testid="broker-password-input" id="broker-password" required placeholder="••••••••" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg px-3 py-2 text-xs text-white outline-none" />
-            </div>
-            <button type="submit" data-testid="broker-connect-button" id="broker-connect-btn" class="w-full py-2.5 rounded-lg bg-[#161D2A] hover:bg-[#1E293B] border border-[#334155] text-white font-display font-bold text-xs tracking-wide transition">
-              CONECTAR CORRETORA
-            </button>
+    <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
+      <aside class="space-y-4">
+        <div class="panel p-4">
+          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-cyan-300"></i> Conexão da corretora</h2>
+          <form id="broker-form" class="space-y-3">
+            <div><label class="text-xs muted">Corretora</label><select id="broker-name" class="field mt-1"><option value="iqoption">IQ Option</option><option value="polarium">Polarium</option></select></div>
+            <div><label class="text-xs muted">E-mail da corretora</label><input id="broker-email" class="field mt-1" type="email" autocomplete="off" required></div>
+            <div><label class="text-xs muted">Senha da corretora</label><input id="broker-password" class="field mt-1" type="password" autocomplete="new-password" required></div>
+            <div><label class="text-xs muted">Conta</label><select id="account-type" class="field mt-1"><option value="demo">Demo</option><option value="real">Real</option></select></div>
+            <button id="broker-connect" class="btn btn-primary w-full" type="submit">Conectar</button>
+            <button id="broker-disconnect" class="btn btn-secondary w-full hidden" type="button">Desconectar</button>
           </form>
+          <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
         </div>
-
-        <!-- Card Parâmetros da Estratégia -->
-        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5 space-y-3">
-          <h2 class="font-display font-bold text-sm uppercase tracking-wider text-white flex items-center gap-2">
-            <i data-lucide="sliders" class="w-4 h-4 text-[#FFC107]"></i>
-            Motor Didi Fluxo
-          </h2>
-
-          <div class="space-y-2 text-xs">
-            <div class="flex justify-between py-1.5 border-b border-[#1E293B]">
-              <span class="text-[#94A3B8]">Direção Base</span>
-              <span class="font-mono-num text-white font-semibold">MA 9 × MA 21</span>
-            </div>
-            <div class="flex justify-between py-1.5 border-b border-[#1E293B]">
-              <span class="text-[#94A3B8]">Gatilho</span>
-              <span class="font-mono-num text-white font-semibold">MACD (12, 26, 9)</span>
-            </div>
-            <div class="flex justify-between py-1.5 border-b border-[#1E293B]">
-              <span class="text-[#94A3B8]">Filtro Força</span>
-              <span class="font-mono-num text-white font-semibold">RSI (14)</span>
-            </div>
-            <div class="flex justify-between py-1.5">
-              <span class="text-[#94A3B8]">Confirmação</span>
-              <span class="font-mono-num text-[#00E5FF] font-semibold">Agulhada Didi</span>
-            </div>
-          </div>
-
-          <div class="pt-2">
-            <label class="flex items-center justify-between text-xs text-[#94A3B8] mb-1">
-              <span>Confluência Mínima</span>
-              <span id="min-conf-val" class="font-mono-num text-white font-bold">85%</span>
-            </label>
-            <input type="range" min="70" max="98" value="85" oninput="document.getElementById('min-conf-val').textContent = this.value + '%'" class="w-full accent-[#00E676]" />
-          </div>
+        <div class="panel p-4">
+          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
+          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
+          <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
+          <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
+          <div class="mt-4 flex gap-2"><button id="scan-start" class="btn btn-primary flex-1" type="button" disabled>Iniciar</button><button id="scan-stop" class="btn btn-danger flex-1 hidden" type="button">Parar</button></div>
+          <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
+          <p class="text-xs muted mt-3">A execução automática de ordens permanece desativada nesta interface.</p>
         </div>
-      </section>
-
-      <!-- COLUNA CENTRAL: HERO Melhor Ativo & Histórico (6 cols) -->
-      <section class="lg:col-span-6 space-y-4 md:space-y-6">
-
-        <!-- HERO Card: Melhor Ativo -->
-        <div data-testid="best-asset-card" id="hero-card" class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-5 md:p-6 transition-all duration-300 glow-call">
-          <div class="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-[#1E293B]">
-            <div class="flex items-center gap-2">
-              <span class="relative flex h-2.5 w-2.5">
-                <span id="scanner-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00E676] opacity-75"></span>
-                <span id="scanner-dot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#00E676]"></span>
-              </span>
-              <span class="text-xs font-display font-bold uppercase tracking-wider text-[#00E5FF]">MELHOR ATIVO RANQUEADO #1</span>
-            </div>
-            <span id="hero-broker-tag" class="text-[11px] font-mono-num px-2.5 py-0.5 rounded bg-[#FF5722]/15 border border-[#FF5722]/40 text-[#FF5722] font-bold">
-              IQ OPTION • OTC
-            </span>
-          </div>
-
-          <!-- Ativo & Direção -->
-          <div class="py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <p class="text-xs text-[#94A3B8] mb-1">Par Selecionado</p>
-              <h2 id="hero-asset" class="font-display font-black text-3xl md:text-4xl tracking-tight text-white">EUR/USD OTC</h2>
-              <div class="flex items-center gap-4 mt-2 text-xs text-[#94A3B8]">
-                <span>Entrada: <strong id="hero-price" class="font-mono-num text-white">1.08542</strong></span>
-                <span>Expiração: <strong id="hero-tf" class="font-mono-num text-[#00E5FF]">5 Minutos</strong></span>
-              </div>
-            </div>
-
-            <div class="flex flex-col sm:items-end">
-              <div data-testid="signal-direction-badge" id="hero-direction" class="font-display font-black text-3xl md:text-5xl uppercase tracking-tight text-[#00E676] text-glow-call">
-                COMPRA • CALL
-              </div>
-              <div class="flex items-center gap-3 mt-2">
-                <span class="text-xs text-[#94A3B8]">Assertividade:</span>
-                <span data-testid="signal-confidence-rate" id="hero-confidence" class="font-mono-num font-extrabold text-lg text-[#00E676]">94%</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Barra de Progresso Vela / Countdown -->
-          <div class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 mb-5 flex items-center justify-between">
-            <span class="text-xs text-[#94A3B8] flex items-center gap-2">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#00E5FF]"></i>
-              Próxima Vela / Expiração
-            </span>
-            <span id="candle-timer" class="font-mono-num font-bold text-sm text-white">00:42</span>
-          </div>
-
-          <!-- 4 Luzes de Confirmação dos Indicadores -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div data-testid="indicator-ma-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
-              <span class="text-xs text-[#94A3B8]">Cruzamento MA 9/21</span>
-              <span id="ind-ma" class="font-mono-num text-xs font-bold text-[#00E676]">ALTA (MA9 > MA21)</span>
-            </div>
-
-            <div data-testid="indicator-macd-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
-              <span class="text-xs text-[#94A3B8]">Gatilho MACD</span>
-              <span id="ind-macd" class="font-mono-num text-xs font-bold text-[#00E676]">CRUZADO COMPRA</span>
-            </div>
-
-            <div data-testid="indicator-rsi-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
-              <span class="text-xs text-[#94A3B8]">Confirmação RSI (14)</span>
-              <span id="ind-rsi" class="font-mono-num text-xs font-bold text-[#00E676]">68.4 (FORTE)</span>
-            </div>
-
-            <div data-testid="indicator-didi-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
-              <span class="text-xs text-[#94A3B8]">Agulhada do Didi</span>
-              <span id="ind-didi" class="font-mono-num text-xs font-bold text-[#00E5FF]">DI+ > DI- CONFIRMADA</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tabela Histórico de Sinais -->
-        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h3 class="font-display font-bold text-sm uppercase tracking-wider text-white">Histórico de Sinais Emitidos</h3>
-            <div class="flex items-center gap-3 text-xs">
-              <span class="text-[#94A3B8]">Winrate Sessão: <strong id="session-winrate" class="font-mono-num text-[#00E676]">88.9%</strong></span>
-              <select id="history-filter" onchange="renderHistory()" class="bg-[#080A0F] border border-[#1E293B] rounded px-2 py-1 text-xs text-white outline-none">
-                <option value="ALL">Todos</option>
-                <option value="WIN">Apenas WIN</option>
-                <option value="LOSS">Apenas LOSS</option>
-                <option value="PENDENTE">Pendentes</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto">
-            <table data-testid="signal-history-table" class="w-full text-left border-collapse">
-              <thead>
-                <tr class="border-b border-[#1E293B] text-[11px] uppercase text-[#64748B]">
-                  <th class="py-2.5 px-2">Horário</th>
-                  <th class="py-2.5 px-2">Ativo</th>
-                  <th class="py-2.5 px-2">Corretora</th>
-                  <th class="py-2.5 px-2">Direção</th>
-                  <th class="py-2.5 px-2">Taxa</th>
-                  <th class="py-2.5 px-2 text-right">Resultado</th>
-                </tr>
-              </thead>
-              <tbody id="history-tbody" class="divide-y divide-[#1E293B] text-xs">
-                <!-- Preenchido via JS -->
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </section>
-
-      <!-- COLUNA DIREITA: Scanner de Mercado ao Vivo (3 cols) -->
-      <aside class="lg:col-span-3">
-        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5 h-full">
-          <div class="flex items-center justify-between mb-4">
-            <h2 class="font-display font-bold text-sm uppercase tracking-wider text-white flex items-center gap-2">
-              <i data-lucide="radio" class="w-4 h-4 text-[#00E676]"></i>
-              Scanner Ao Vivo
-            </h2>
-            <span class="text-[11px] font-mono-num text-[#64748B]">8 PARES</span>
-          </div>
-
-          <div id="scanner-list" class="space-y-2.5">
-            <!-- Preenchido via JS -->
-          </div>
+        <div class="panel p-4">
+          <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
+          <div id="balance" class="text-2xl font-black metric">—</div>
+          <div id="balance-note" class="text-xs muted mt-1">Nenhum saldo confirmado</div>
+          <button id="refresh-balance" class="btn btn-secondary w-full mt-3 text-sm" type="button" disabled>Atualizar saldo</button>
         </div>
       </aside>
 
-    </main>
-  </div>
-
-  <script>
-    // ================= ESTADO DA APLICAÇÃO =================
-    const API_BASE = '/api';
-    let authMode = 'login';
-    let selectedBroker = 'IQ Option';
-    let isBrokerConnected = false;
-    let accountType = 'DEMO';
-    let timeframe = 'M5';
-    let isScanning = true;
-    let soundEnabled = true;
-    let countdown = 45;
-
-    const PAIRS = [
-      { symbol: 'EUR/USD OTC', price: 1.08542, dir: 'CALL', conf: 94, rsi: 68.4 },
-      { symbol: 'GBP/USD OTC', price: 1.26418, dir: 'PUT',  conf: 91, rsi: 31.2 },
-      { symbol: 'USD/JPY OTC', price: 154.320, dir: 'CALL', conf: 88, rsi: 64.9 },
-      { symbol: 'EUR/JPY OTC', price: 167.510, dir: 'CALL', conf: 86, rsi: 62.1 },
-      { symbol: 'AUD/CAD OTC', price: 0.90125, dir: 'PUT',  conf: 84, rsi: 34.8 },
-      { symbol: 'NZD/USD OTC', price: 0.59840, dir: 'CALL', conf: 81, rsi: 59.5 },
-      { symbol: 'EUR/GBP OTC', price: 0.85830, dir: 'PUT',  conf: 79, rsi: 38.0 },
-      { symbol: 'USD/CHF OTC', price: 0.88415, dir: 'CALL', conf: 76, rsi: 57.3 },
-    ];
-
-    let signalHistory = [
-      { time: '09:45:00', asset: 'EUR/USD OTC', broker: 'IQ Option', dir: 'CALL', rate: '1.08510', result: 'WIN' },
-      { time: '09:40:00', asset: 'GBP/USD OTC', broker: 'IQ Option', dir: 'PUT',  rate: '1.26490', result: 'WIN' },
-      { time: '09:35:00', asset: 'USD/JPY OTC', broker: 'PolariumBroker', dir: 'CALL', rate: '154.180', result: 'WIN' },
-      { time: '09:30:00', asset: 'AUD/CAD OTC', broker: 'IQ Option', dir: 'PUT',  rate: '0.90190', result: 'LOSS' },
-      { time: '09:25:00', asset: 'EUR/JPY OTC', broker: 'IQ Option', dir: 'CALL', rate: '167.420', result: 'WIN' },
-    ];
-
-    // ================= INICIALIZAÇÃO =================
-    document.addEventListener('DOMContentLoaded', () => {
-      lucide.createIcons();
-      const savedUser = localStorage.getItem('didi_bot_user');
-      if (savedUser) {
-        showDashboard();
-      }
-      renderScannerList();
-      renderHistory();
-      startEngineLoop();
-    });
-
-    // ================= TOASTS =================
-    function showToast(message, type = 'info') {
-      const container = document.getElementById('toast-container');
-      const toast = document.createElement('div');
-      const colors = {
-        success: 'border-[#00E676]/50 bg-[#0F131C] text-[#00E676]',
-        error: 'border-[#FF3D00]/50 bg-[#0F131C] text-[#FF3D00]',
-        info: 'border-[#00E5FF]/50 bg-[#0F131C] text-[#F8FAFC]'
-      };
-      toast.className = `pointer-events-auto border ${colors[type] || colors.info} px-4 py-3 rounded-lg shadow-xl text-xs font-medium flex items-center justify-between gap-3 transition-all`;
-      toast.innerHTML = `<span>${message}</span>`;
-      container.appendChild(toast);
-      setTimeout(() => {
-        toast.style.opacity = '0';
-        setTimeout(() => toast.remove(), 300);
-      }, 3500);
-    }
-
-    // ================= ÁUDIO ALERTA =================
-    function playAlertBeep() {
-      if (!soundEnabled) return;
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.setValueAtTime(0.06, ctx.currentTime);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.14);
-      } catch (e) {}
-    }
-
-    function toggleSound() {
-      soundEnabled = !soundEnabled;
-      const btn = document.getElementById('sound-btn');
-      btn.classList.toggle('text-[#00E5FF]', soundEnabled);
-      btn.classList.toggle('text-[#64748B]', !soundEnabled);
-      showToast(soundEnabled ? 'Alerta sonoro ativado' : 'Alerta sonoro silenciado');
-    }
-
-    // ================= AUTENTICAÇÃO =================
-    function switchAuthTab(mode) {
-      authMode = mode;
-      const loginTab = document.getElementById('tab-login');
-      const regTab = document.getElementById('tab-register');
-      const nameField = document.getElementById('register-name-field');
-      const submitText = document.getElementById('auth-submit-text');
-
-      if (mode === 'login') {
-        loginTab.className = 'py-2 text-xs font-semibold rounded-md bg-[#161D2A] text-white transition';
-        regTab.className = 'py-2 text-xs font-semibold rounded-md text-[#94A3B8] hover:text-white transition';
-        nameField.classList.add('hidden');
-        submitText.textContent = 'ACESSAR TERMINAL';
-      } else {
-        regTab.className = 'py-2 text-xs font-semibold rounded-md bg-[#161D2A] text-white transition';
-        loginTab.className = 'py-2 text-xs font-semibold rounded-md text-[#94A3B8] hover:text-white transition';
-        nameField.classList.remove('hidden');
-        submitText.textContent = 'CRIAR CONTA & ENTRAR';
-      }
-    }
-
-    async function handleAuthSubmit(e) {
-      e.preventDefault();
-      const email = document.getElementById('auth-email').value;
-      const password = document.getElementById('auth-password').value;
-      const endpoint = authMode === 'login' ? `${API_BASE}/auth/login` : `${API_BASE}/auth/register`;
-
-      try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem('didi_bot_token', data.token || 'session_active');
-        }
-      } catch (_) {
-        // Fallback offline/demo caso a rota de auth ainda não esteja ativa no backend
-      }
-
-      localStorage.setItem('didi_bot_user', email);
-      showToast('Bem-vindo ao Terminal Didi Fluxo!', 'success');
-      showDashboard();
-    }
-
-    function showDashboard() {
-      document.getElementById('auth-screen').classList.add('hidden');
-      document.getElementById('dashboard-screen').classList.remove('hidden');
-    }
-
-    function handleLogout() {
-      localStorage.removeItem('didi_bot_user');
-      localStorage.removeItem('didi_bot_token');
-      document.getElementById('dashboard-screen').classList.add('hidden');
-      document.getElementById('auth-screen').classList.remove('hidden');
-      showToast('Sessão encerrada.');
-    }
-
-    // ================= CORRETORA & CONTROLES =================
-    function selectBroker(broker) {
-      selectedBroker = broker;
-      const btnIq = document.getElementById('btn-broker-iq');
-      const btnPol = document.getElementById('btn-broker-polarium');
-
-      if (broker === 'IQ Option') {
-        btnIq.className = 'py-2 px-2 rounded-lg border border-[#FF5722] bg-[#FF5722]/15 text-white font-semibold text-xs transition';
-        btnPol.className = 'py-2 px-2 rounded-lg border border-[#1E293B] bg-[#080A0F] text-[#94A3B8] hover:text-white font-semibold text-xs transition';
-      } else {
-        btnPol.className = 'py-2 px-2 rounded-lg border border-[#00B0FF] bg-[#00B0FF]/15 text-white font-semibold text-xs transition';
-        btnIq.className = 'py-2 px-2 rounded-lg border border-[#1E293B] bg-[#080A0F] text-[#94A3B8] hover:text-white font-semibold text-xs transition';
-      }
-      updateHeroBrokerTag();
-    }
-
-    async function connectBroker(e) {
-      e.preventDefault();
-      const statusDot = document.getElementById('status-dot');
-      const statusText = document.getElementById('status-text');
-      const btn = document.getElementById('broker-connect-btn');
-
-      statusDot.className = 'w-2 h-2 rounded-full bg-[#FFC107] animate-ping';
-      statusText.textContent = 'Autenticando...';
-      btn.textContent = 'CONECTANDO...';
-
-      try {
-        await fetch(`${API_BASE}/broker/connect`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            broker: selectedBroker,
-            email: document.getElementById('broker-email').value,
-            account_type: accountType
-          })
-        });
-      } catch (_) {}
-
-      setTimeout(() => {
-        isBrokerConnected = true;
-        statusDot.className = 'w-2 h-2 rounded-full bg-[#00E676]';
-        statusText.textContent = `${selectedBroker} Conectado`;
-        statusText.className = 'text-[#00E676] font-semibold';
-        btn.textContent = 'RECONECTAR API';
-        updateHeroBrokerTag();
-        showToast(`Conectado à ${selectedBroker} com sucesso!`, 'success');
-      }, 700);
-    }
-
-    function toggleAccountType() {
-      accountType = accountType === 'DEMO' ? 'REAL' : 'DEMO';
-      const btn = document.getElementById('account-type-btn');
-      const bal = document.getElementById('balance-display');
-      btn.textContent = `CONTA: ${accountType}`;
-      if (accountType === 'REAL') {
-        btn.className = 'px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#00E676]/50 text-[#00E676] font-mono-num font-bold text-xs tracking-wider transition';
-        bal.textContent = 'R$ 1.450,00';
-      } else {
-        btn.className = 'px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#FFC107]/40 text-[#FFC107] font-mono-num font-bold text-xs tracking-wider transition';
-        bal.textContent = 'R$ 10.000,00';
-      }
-      showToast(`Conta alterada para ${accountType}`);
-    }
-
-    function changeTimeframe() {
-      timeframe = document.getElementById('timeframe-select').value;
-      const map = { M1: '1 Minuto', M5: '5 Minutos', M15: '15 Minutos' };
-      document.getElementById('hero-tf').textContent = map[timeframe];
-      countdown = timeframe === 'M1' ? 59 : timeframe === 'M5' ? 45 : 55;
-      showToast(`Timeframe ajustado para ${timeframe}`);
-    }
-
-    function toggleScanner() {
-      isScanning = !isScanning;
-      const btn = document.getElementById('scan-toggle-btn');
-      const txt = document.getElementById('scan-btn-text');
-      const ping = document.getElementById('scanner-ping');
-
-      if (isScanning) {
-        btn.className = 'flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#00E676] hover:bg-[#00c865] text-[#080A0F] font-display font-extrabold text-xs tracking-wide transition';
-        txt.textContent = 'ANALISANDO...';
-        ping.classList.remove('hidden');
-        showToast('Varredura de mercado iniciada', 'success');
-      } else {
-        btn.className = 'flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#FF3D00] hover:bg-[#e03500] text-white font-display font-extrabold text-xs tracking-wide transition';
-        txt.textContent = 'INICIAR ANÁLISE';
-        ping.classList.add('hidden');
-        showToast('Varredura pausada', 'error');
-      }
-    }
-
-    function updateHeroBrokerTag() {
-      const tag = document.getElementById('hero-broker-tag');
-      tag.textContent = `${selectedBroker.toUpperCase()} • OTC`;
-      if (selectedBroker === 'PolariumBroker') {
-        tag.className = 'text-[11px] font-mono-num px-2.5 py-0.5 rounded bg-[#00B0FF]/15 border border-[#00B0FF]/40 text-[#00B0FF] font-bold';
-      } else {
-        tag.className = 'text-[11px] font-mono-num px-2.5 py-0.5 rounded bg-[#FF5722]/15 border border-[#FF5722]/40 text-[#FF5722] font-bold';
-      }
-    }
-
-    // ================= MOTOR DE SIMULAÇÃO & RENDER =================
-    function renderScannerList() {
-      const list = document.getElementById('scanner-list');
-      const sorted = [...PAIRS].sort((a, b) => b.conf - a.conf);
-
-      list.innerHTML = sorted.map((item, idx) => {
-        const isCall = item.dir === 'CALL';
-        const badgeColor = isCall ? 'text-[#00E676] bg-[#00E676]/10 border-[#00E676]/30' : 'text-[#FF3D00] bg-[#FF3D00]/10 border-[#FF3D00]/30';
-        return `
-          <div onclick="selectHeroAsset('${item.symbol}')" class="cursor-pointer p-3 rounded-lg bg-[#080A0F] hover:bg-[#161D2B] border ${idx === 0 ? 'border-[#00E5FF]/50' : 'border-[#1E293B]'} transition flex items-center justify-between">
-            <div>
-              <div class="flex items-center gap-1.5">
-                <span class="font-display font-bold text-xs text-white">${item.symbol}</span>
-                ${idx === 0 ? '<span class="text-[9px] px-1 rounded bg-[#00E5FF]/20 text-[#00E5FF] font-mono-num">TOP</span>' : ''}
-              </div>
-              <span class="font-mono-num text-[11px] text-[#64748B]">${item.price.toFixed(item.symbol.includes('JPY') ? 3 : 5)}</span>
-            </div>
-            <div class="text-right">
-              <span class="inline-block px-2 py-0.5 rounded border text-[10px] font-mono-num font-bold ${badgeColor}">
-                ${item.dir}
-              </span>
-              <div class="font-mono-num text-xs font-bold text-white mt-0.5">${item.conf}%</div>
-            </div>
+      <section class="space-y-4 min-w-0">
+        <div class="panel p-5">
+          <div class="flex flex-wrap justify-between gap-3 items-start">
+            <div><div class="text-xs muted uppercase tracking-widest">Melhor oportunidade retornada pela API</div><div id="hero-asset" class="text-2xl md:text-3xl font-black mt-2">Aguardando scanner</div><div id="hero-meta" class="text-xs muted mt-1">Nenhum sinal confirmado</div></div>
+            <div class="text-right"><div id="hero-direction" class="text-xl font-black">—</div><div id="hero-confidence" class="text-sm muted">Confiança: —</div></div>
           </div>
-        `;
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Último fechamento</div><div id="hero-price" class="font-bold metric mt-1">—</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M5</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
+          </div>
+          <p class="text-xs muted mt-4">O preço exibido é o fechamento da última vela retornada por <code>/api/chart</code>, não uma cotação tick a tick.</p>
+        </div>
+        <div class="panel p-4">
+          <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Histórico real de sinais</h2><span id="history-stats" class="text-xs muted">Sem operações registradas</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="6" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
+        </div>
+        <div class="panel p-4">
+          <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
+          <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
+          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
+            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
+            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel p-4 min-w-0">
+        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
+        <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
+        <div class="border-t border-slate-700 mt-4 pt-4">
+          <h3 class="text-sm font-bold mb-2">Indicadores</h3>
+          <div id="indicator-details" class="text-xs muted">Os indicadores serão exibidos somente se a API os retornar.</div>
+        </div>
+      </aside>
+    </section>
+    <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
+  </main>
+
+<script>
+(() => {
+  'use strict';
+  const API='/api';
+  const $=id=>document.getElementById(id);
+  let authMode='login', token=localStorage.getItem('didi_api_token')||'';
+  let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
+  let pollTimers=[];
+  const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
+  const safe=(v)=>String(v??'—');
+  const dateFmt=(v)=>{
+    if(v==null)return '—';
+    let d=typeof v==='number'?new Date(v<1e12?v*1000:v):new Date(v);
+    return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR');
+  };
+  function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');setTimeout(()=>$('toast').classList.add('hidden'),3500)}
+  async function api(path, options={}){
+    const headers={...(options.headers||{})};
+    if(options.body!==undefined)headers['Content-Type']='application/json';
+    if(token)headers.Authorization='Bearer '+token;
+    const res=await fetch(API+path,{...options,headers,credentials:'same-origin'});
+    let data={};try{data=await res.json()}catch(_){}
+    if(!res.ok)throw new Error(data.detail||data.message||data.error||`Erro HTTP ${res.status}`);
+    return data;
+  }
+  function showLogin(message=''){
+    stopPolling();$('dashboard').classList.add('hidden');$('login-screen').classList.remove('hidden');
+    $('auth-error').textContent=message;user=null;
+  }
+  function showDashboard(){
+    $('login-screen').classList.add('hidden');$('dashboard').classList.remove('hidden');
+    if(window.lucide)lucide.createIcons();
+  }
+  function setAuthMode(mode){
+    authMode=mode;const reg=mode==='register';
+    $('name-wrap').classList.toggle('hidden',!reg);
+    $('mode-login').className='btn '+(!reg?'btn-primary':'btn-secondary')+' flex-1';
+    $('mode-register').className='btn '+(reg?'btn-primary':'btn-secondary')+' flex-1';
+    $('auth-submit').textContent=reg?'Criar conta':'Entrar';
+    $('auth-password').autocomplete=reg?'new-password':'current-password';
+    $('auth-error').textContent='';
+  }
+  $('mode-login').addEventListener('click',()=>setAuthMode('login'));
+  $('mode-register').addEventListener('click',()=>setAuthMode('register'));
+  $('auth-form').addEventListener('submit',async e=>{
+    e.preventDefault();$('auth-submit').disabled=true;$('auth-error').textContent='Validando no servidor…';
+    const email=$('auth-email').value.trim(),password=$('auth-password').value;
+    try{
+      const body={email,password};
+      if(authMode==='register')body.name=$('auth-name').value.trim();
+      if(authMode==='register'&&!body.name)throw new Error('Informe seu nome.');
+      const result=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});
+      if(result.token){token=result.token;localStorage.setItem('didi_api_token',token)}
+      const me=await api('/auth/me');
+      user=me.user||me;
+      showDashboard();await refreshAll();startPolling();
+    }catch(err){token='';localStorage.removeItem('didi_api_token');$('auth-error').textContent=err.message||'Não foi possível autenticar.'}
+    finally{$('auth-submit').disabled=false}
+  });
+  $('logout-btn').addEventListener('click',async()=>{
+    try{await api('/auth/logout',{method:'POST'})}catch(_){}
+    token='';localStorage.removeItem('didi_api_token');showLogin('Sessão encerrada.');
+  });
+  async function restoreSession(){
+    try{const me=await api('/auth/me');user=me.user||me;showDashboard();await refreshAll();startPolling()}
+    catch(_){showLogin('Entre com sua conta para continuar.')}
+  }
+
+  $('broker-form').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const btn=$('broker-connect');btn.disabled=true;btn.textContent='Conectando…';
+    $('broker-message').textContent='Aguardando confirmação da corretora pelo servidor…';
+    const password=$('broker-password').value;
+    try{
+      const result=await api('/broker/connect',{method:'POST',body:JSON.stringify({
+        broker:$('broker-name').value,email:$('broker-email').value.trim(),password,
+        account_type:$('account-type').value,simulate:false
+      })});
+      if(result.connected!==true||result.simulated===true)throw new Error(result.message||'O servidor não confirmou uma conexão real.');
+      brokerConnected=true;updateBrokerUI(result);
+      $('broker-message').textContent=result.message||'Conexão confirmada pelo servidor.';
+      toast('Corretora conectada conforme resposta da API.');
+      await refreshAll();
+    }catch(err){brokerConnected=false;updateBrokerUI();$('broker-message').textContent=err.message;toast(err.message)}
+    finally{$('broker-password').value='';btn.disabled=false;btn.textContent='Conectar'}
+  });
+  $('broker-disconnect').addEventListener('click',async()=>{
+    try{await api('/broker/disconnect',{method:'POST'});brokerConnected=false;updateBrokerUI();$('broker-message').textContent='Desconexão confirmada pelo servidor.';toast('Corretora desconectada.')}
+    catch(err){$('broker-message').textContent=err.message}
+  });
+  function updateBrokerUI(data={}){
+    $('broker-dot').className='dot '+(brokerConnected?'ok':'');
+    $('broker-status').textContent=brokerConnected?`${data.broker||$('broker-name').selectedOptions[0].text} conectado`:'Corretora desconectada';
+    $('broker-connect').classList.toggle('hidden',brokerConnected);
+    $('broker-disconnect').classList.toggle('hidden',!brokerConnected);
+    $('scan-start').disabled=!brokerConnected||scanning;
+    $('refresh-balance').disabled=!brokerConnected;
+    if(data.balance!==undefined){$('balance').textContent=`${fmt(data.balance,2)} ${safe(data.currency||'')}`;$('balance-note').textContent=`Conta ${safe(data.account_type||$('account-type').value).toUpperCase()} · resposta da API`}
+    else if(!brokerConnected){$('balance').textContent='—';$('balance-note').textContent='Nenhum saldo confirmado'}
+  }
+  async function refreshBroker(){
+    try{
+      const s=await api('/broker/status');
+      const session=s.session||s;
+      brokerConnected=session.connected===true&&!session.simulated;
+      updateBrokerUI(session);
+      if(session.connected===true&&session.balance!==undefined)updateBrokerUI(session);
+      if(s.connected===false||session.connected===false)brokerConnected=false;
+    }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
+  }
+  $('refresh-balance').addEventListener('click',async()=>{
+    try{const s=await api('/broker/status');const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
+    catch(err){toast(err.message)}
+  });
+
+  $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
+  $('timeframe').addEventListener('change',async()=>{
+    $('hero-timeframe').textContent=$('timeframe').value;
+    if(selectedAsset)await refreshChart();
+  });
+  $('scan-start').addEventListener('click',async()=>{
+    try{
+      const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:2
+      })});
+      scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
+      await refreshScan();
+    }catch(err){$('scan-message').textContent=err.message;toast('Não foi possível iniciar: '+err.message)}
+  });
+  $('scan-stop').addEventListener('click',async()=>{
+    try{const result=await api('/scan/stop',{method:'POST'});scanning=false;updateScanUI();$('scan-message').textContent=result.message||'Scanner parado pelo servidor.';toast('Scanner parado.')}
+    catch(err){$('scan-message').textContent=err.message}
+  });
+  function updateScanUI(){
+    $('scan-start').classList.toggle('hidden',scanning);$('scan-stop').classList.toggle('hidden',!scanning);
+    $('scan-start').disabled=!brokerConnected||scanning;
+  }
+  function normalizeRanking(data){
+    if(Array.isArray(data))return data;
+    if(Array.isArray(data?.ranking))return data.ranking;
+    if(Array.isArray(data?.items))return data.items;
+    return [];
+  }
+  function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
+  function renderRanking(items){
+    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
+    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
+    $('scanner-list').innerHTML=items.map((x,i)=>{
+      const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
+      const conf=x.confidence??x.confidence_pct??x.score;
+      const price=x.price??x.close;
+      return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
+        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':'text-emerald-300'}">${escapeHtml(dir||'—')}</span></div>
+        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
+      </button>`;
+    }).join('');
+    $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
+      const item=items[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
+    }));
+    if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
+  }
+  function renderHero(x){
+    const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
+    $('hero-asset').textContent=asset;$('hero-direction').textContent=dir||'—';
+    $('hero-direction').className='text-xl font-black '+(dir.includes('PUT')||dir.includes('SELL')?'signal-put':dir?'signal-call':'');
+    const conf=x.confidence??x.confidence_pct??x.score;
+    $('hero-confidence').textContent='Confiança: '+(conf==null?'—':conf+'%');
+    $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
+    $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
+    $('hero-timeframe').textContent=$('timeframe').value;
+    const ind=x.indicators||x.analysis||null;
+    $('indicator-details').textContent=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
+  }
+  function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  async function refreshScan(){
+    try{
+      const s=await api('/scan/state');
+      scanning=s.running===true;updateScanUI();
+      $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
+      const ranking=normalizeRanking(s);
+      renderRanking(ranking);
+      if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
+      $('api-dot').className='dot ok';$('api-status').textContent='API conectada';
+    }catch(err){$('api-dot').className='dot bad';$('api-status').textContent='API indisponível';$('scan-message').textContent=err.message}
+  }
+  async function refreshChart(){
+    if(!selectedAsset||selectedAsset==='—')return;
+    try{
+      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset));
+      const candles=Array.isArray(data.candles)?data.candles:[];
+      const c=candles[candles.length-1];
+      $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
+      if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
+      $('hero-price').textContent=fmt(c.close,5);
+      $('hero-candle-time').textContent=dateFmt(c.ts);
+      $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
+      $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. MA9: ${last(data.ma9)} · MA21: ${last(data.ma21)}.`;
+    }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
+  }
+  function last(arr){return Array.isArray(arr)&&arr.length?fmt(arr[arr.length-1],5):'—'}
+  async function refreshHistory(){
+    try{
+      const data=await api('/signals/history?limit=50');
+      const items=Array.isArray(data.items)?data.items:[];
+      $('history-stats').textContent=data.stats?`${data.stats.wins??0} vitórias · ${data.stats.losses??0} perdas · ${fmt(data.stats.winrate??0,1)}% acerto · lucro ${fmt(data.stats.profit??0,2)}`:'';
+      if(!items.length){$('history-body').innerHTML='<tr><td colspan="6" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
+      $('history-body').innerHTML=items.map(x=>{
+        const result=String(x.result??x.status??'PENDENTE').toUpperCase();
+        const cls=result.includes('WIN')||result.includes('WON')||result.includes('GAIN')?'text-emerald-300':result.includes('LOSS')||result.includes('LOST')?'text-rose-300':'text-amber-200';
+        return `<tr><td>${escapeHtml(dateFmt(x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${cls}">${escapeHtml(result)}</td><td>${x.profit==null?'—':escapeHtml(fmt(x.profit,2))}</td></tr>`;
       }).join('');
-
-      updateHeroCard(sorted[0]);
-    }
-
-    function selectHeroAsset(symbol) {
-      const found = PAIRS.find(p => p.symbol === symbol);
-      if (found) updateHeroCard(found);
-    }
-
-    function updateHeroCard(asset) {
-      const isCall = asset.dir === 'CALL';
-      const card = document.getElementById('hero-card');
-      const dirEl = document.getElementById('hero-direction');
-      const confEl = document.getElementById('hero-confidence');
-
-      card.classList.toggle('glow-call', isCall);
-      card.classList.toggle('glow-put', !isCall);
-
-      document.getElementById('hero-asset').textContent = asset.symbol;
-      document.getElementById('hero-price').textContent = asset.price.toFixed(asset.symbol.includes('JPY') ? 3 : 5);
-      confEl.textContent = `${asset.conf}%`;
-
-      if (isCall) {
-        dirEl.textContent = 'COMPRA • CALL';
-        dirEl.className = 'font-display font-black text-3xl md:text-5xl uppercase tracking-tight text-[#00E676] text-glow-call';
-        confEl.className = 'font-mono-num font-extrabold text-lg text-[#00E676]';
-        document.getElementById('ind-ma').textContent = 'ALTA (MA9 > MA21)';
-        document.getElementById('ind-ma').className = 'font-mono-num text-xs font-bold text-[#00E676]';
-        document.getElementById('ind-macd').textContent = 'CRUZADO COMPRA';
-        document.getElementById('ind-macd').className = 'font-mono-num text-xs font-bold text-[#00E676]';
-        document.getElementById('ind-rsi').textContent = `${asset.rsi.toFixed(1)} (FORTE COMPRA)`;
-        document.getElementById('ind-rsi').className = 'font-mono-num text-xs font-bold text-[#00E676]';
-        document.getElementById('ind-didi').textContent = 'DI+ > DI- (CONFIRMADA)';
-      } else {
-        dirEl.textContent = 'VENDA • PUT';
-        dirEl.className = 'font-display font-black text-3xl md:text-5xl uppercase tracking-tight text-[#FF3D00] text-glow-put';
-        confEl.className = 'font-mono-num font-extrabold text-lg text-[#FF3D00]';
-        document.getElementById('ind-ma').textContent = 'BAIXA (MA9 < MA21)';
-        document.getElementById('ind-ma').className = 'font-mono-num text-xs font-bold text-[#FF3D00]';
-        document.getElementById('ind-macd').textContent = 'CRUZADO VENDA';
-        document.getElementById('ind-macd').className = 'font-mono-num text-xs font-bold text-[#FF3D00]';
-        document.getElementById('ind-rsi').textContent = `${asset.rsi.toFixed(1)} (FORTE VENDA)`;
-        document.getElementById('ind-rsi').className = 'font-mono-num text-xs font-bold text-[#FF3D00]';
-        document.getElementById('ind-didi').textContent = 'DI- > DI+ (CONFIRMADA)';
-      }
-    }
-
-    function renderHistory() {
-      const filter = document.getElementById('history-filter').value;
-      const tbody = document.getElementById('history-tbody');
-      const filtered = filter === 'ALL' ? signalHistory : signalHistory.filter(s => s.result === filter);
-
-      tbody.innerHTML = filtered.map(row => {
-        const dirClass = row.dir === 'CALL' ? 'text-[#00E676]' : 'text-[#FF3D00]';
-        const resBadge = row.result === 'WIN'
-          ? 'bg-[#00E676]/15 text-[#00E676] border-[#00E676]/40'
-          : row.result === 'LOSS'
-          ? 'bg-[#FF3D00]/15 text-[#FF3D00] border-[#FF3D00]/40'
-          : 'bg-[#FFC107]/15 text-[#FFC107] border-[#FFC107]/40';
-
-        return `
-          <tr class="hover:bg-[#161D2B]/60 transition">
-            <td class="py-2.5 px-2 font-mono-num text-[#94A3B8]">${row.time}</td>
-            <td class="py-2.5 px-2 font-display font-bold text-white">${row.asset}</td>
-            <td class="py-2.5 px-2 text-[#94A3B8]">${row.broker}</td>
-            <td class="py-2.5 px-2 font-mono-num font-bold ${dirClass}">${row.dir}</td>
-            <td class="py-2.5 px-2 font-mono-num text-white">${row.rate}</td>
-            <td class="py-2.5 px-2 text-right">
-              <span class="px-2 py-0.5 rounded border text-[10px] font-mono-num font-bold ${resBadge}">${row.result}</span>
-            </td>
-          </tr>
-        `;
-      }).join('');
-
-      const wins = signalHistory.filter(s => s.result === 'WIN').length;
-      const total = signalHistory.filter(s => s.result !== 'PENDENTE').length;
-      const rate = total > 0 ? ((wins / total) * 100).toFixed(1) : '100.0';
-      document.getElementById('session-winrate').textContent = `${rate}%`;
-    }
-
-    function startEngineLoop() {
-      setInterval(() => {
-        if (!isScanning) return;
-
-        // Atualiza ticks de preço e oscilação leve de confluência
-        PAIRS.forEach(p => {
-          const delta = (Math.random() - 0.5) * (p.symbol.includes('JPY') ? 0.015 : 0.00018);
-          p.price = Math.max(0.1, p.price + delta);
-          if (Math.random() > 0.72) {
-            p.conf = Math.min(97, Math.max(74, p.conf + (Math.random() > 0.5 ? 1 : -1)));
-          }
-        });
-
-        renderScannerList();
-
-        // Countdown da vela
-        countdown--;
-        if (countdown <= 0) {
-          countdown = 59;
-          const topAsset = [...PAIRS].sort((a, b) => b.conf - a.conf)[0];
-          const now = new Date().toTimeString().slice(0, 8);
-
-          // Finaliza pendentes anteriores
-          signalHistory.forEach(s => {
-            if (s.result === 'PENDENTE') s.result = Math.random() > 0.2 ? 'WIN' : 'LOSS';
-          });
-
-          signalHistory.unshift({
-            time: now,
-            asset: topAsset.symbol,
-            broker: selectedBroker,
-            dir: topAsset.dir,
-            rate: topAsset.price.toFixed(topAsset.symbol.includes('JPY') ? 3 : 5),
-            result: 'PENDENTE'
-          });
-          if (signalHistory.length > 15) signalHistory.pop();
-
-          renderHistory();
-          playAlertBeep();
-          showToast(`Novo Sinal: ${topAsset.symbol} ${topAsset.dir} (${topAsset.conf}%)`, topAsset.dir === 'CALL' ? 'success' : 'error');
-        }
-
-        const secs = String(countdown).padStart(2, '0');
-        document.getElementById('candle-timer').textContent = `00:${secs}`;
-      }, 1000);
-    }
-  </script>
+    }catch(err){$('history-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
+  }
+  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory()])}
+  function startPolling(){
+    stopPolling();
+    pollTimers=[setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
+  }
+  function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
+  restoreSession();
+  if(window.lucide)lucide.createIcons();
+})();
+</script>
 </body>
 </html>
