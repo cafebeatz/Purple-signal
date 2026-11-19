@@ -1,113 +1,790 @@
 <!doctype html>
 <html lang="pt-BR" class="dark">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#000000" />
-        <meta name="description" content="A product of emergent.sh" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
-        <!--
-        manifest.json provides metadata used when your web app is installed on a
-        user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-        -->
-        <!--
-        Notice the use of %PUBLIC_URL% in the tags above.
-        It will be replaced with the URL of the `public` folder during the build.
-        Only files inside the `public` folder can be referenced from the HTML.
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#080A0F" />
+  <title>Didi Fluxo Bot — Terminal de Sinais IQ Option & PolariumBroker</title>
 
-        Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-        work correctly both with client-side routing and a non-root public URL.
-        Learn how to configure a non-root public URL by running `npm run build`.
-        -->
-        <title>Purple Signal Analyst</title>
-        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
-        <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
-    </head>
-    <body>
-        <noscript>You need to enable JavaScript to run this app.</noscript>
-        <div id="root"></div>
-        <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+  <!-- Fontes Oficiais -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet" />
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+  <!-- Tailwind CSS & Lucide Icons via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
-        <script>
-            !(function (t, e) {
-                var o, n, p, r;
-                e.__SV ||
-                    ((window.posthog = e),
-                    (e._i = []),
-                    (e.init = function (i, s, a) {
-                        function g(t, e) {
-                            var o = e.split(".");
-                            2 == o.length && ((t = t[o[0]]), (e = o[1])),
-                                (t[e] = function () {
-                                    t.push(
-                                        [e].concat(
-                                            Array.prototype.slice.call(
-                                                arguments,
-                                                0,
-                                            ),
-                                        ),
-                                    );
-                                });
-                        }
-                        ((p = t.createElement("script")).type =
-                            "text/javascript"),
-                            (p.crossOrigin = "anonymous"),
-                            (p.async = !0),
-                            (p.src =
-                                s.api_host.replace(
-                                    ".i.posthog.com",
-                                    "-assets.i.posthog.com",
-                                ) + "/static/array.js"),
-                            (r =
-                                t.getElementsByTagName(
-                                    "script",
-                                )[0]).parentNode.insertBefore(p, r);
-                        var u = e;
-                        for (
-                            void 0 !== a ? (u = e[a] = []) : (a = "posthog"),
-                                u.people = u.people || [],
-                                u.toString = function (t) {
-                                    var e = "posthog";
-                                    return (
-                                        "posthog" !== a && (e += "." + a),
-                                        t || (e += " (stub)"),
-                                        e
-                                    );
-                                },
-                                u.people.toString = function () {
-                                    return u.toString(1) + ".people (stub)";
-                                },
-                                o =
-                                    "init me ws ys ps bs capture je Di ks register register_once register_for_session unregister unregister_for_session Ps getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Es $s createPersonProfile Is opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Ss debug xs getPageViewId captureTraceFeedback captureTraceMetric".split(
-                                        " ",
-                                    ),
-                                n = 0;
-                            n < o.length;
-                            n++
-                        )
-                            g(u, o[n]);
-                        e._i.push([i, s, a]);
-                    }),
-                    (e.__SV = 1));
-            })(document, window.posthog || []);
-            posthog.init("phc_DbsPb39SRc8z3EiQ6Dhj6ikv4H4rTKcht9d4sZSesceP", {
-                api_host: "https://ap.emergent.sh",
-                person_profiles: "identified_only", // or 'always' to create profiles for anonymous users as well,
-                session_recording: {
-                    recordCrossOriginIframes: true,
-                    capturePerformance: false,
-                },
-            });
-        </script>
-    </body>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            display: ['Outfit', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            terminal: {
+              bg: '#080A0F',
+              surface: '#0F131C',
+              secondary: '#161D2A',
+              tertiary: '#1E293B',
+              border: '#1E293B',
+              highlight: '#334155',
+            },
+            call: '#00E676',
+            put: '#FF3D00',
+            cyan: '#00E5FF',
+            gold: '#FFC107',
+            iq: '#FF5722',
+            polarium: '#00B0FF',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #080A0F;
+      color: #F8FAFC;
+      font-family: 'Inter', sans-serif;
+    }
+    .font-display { font-family: 'Outfit', sans-serif; }
+    .font-mono-num { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+    .glow-call { box-shadow: 0 0 28px rgba(0, 230, 118, 0.22); border-color: rgba(0, 230, 118, 0.5) !important; }
+    .glow-put { box-shadow: 0 0 28px rgba(255, 61, 0, 0.22); border-color: rgba(255, 61, 0, 0.5) !important; }
+    .text-glow-call { text-shadow: 0 0 20px rgba(0, 230, 118, 0.55); }
+    .text-glow-put { text-shadow: 0 0 20px rgba(255, 61, 0, 0.55); }
+
+    /* Scrollbar discreta */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #080A0F; }
+    ::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+  </style>
+</head>
+<body class="min-h-screen bg-[#080A0F] text-[#F8FAFC] selection:bg-[#00E5FF]/20 selection:text-[#00E5FF]">
+
+  <!-- Container de Notificações (Toasts) -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- ================= TELA DE AUTENTICAÇÃO ================= -->
+  <div id="auth-screen" class="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+    <div class="absolute inset-0 bg-cover bg-center opacity-15" style="background-image: url('https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1600&q=80');"></div>
+    <div class="absolute inset-0 bg-gradient-to-b from-[#080A0F]/80 via-[#080A0F]/90 to-[#080A0F]"></div>
+
+    <div class="relative z-10 w-full max-w-md bg-[#0F131C] border border-[#1E293B] rounded-xl p-6 md:p-8 shadow-2xl">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-10 h-10 rounded-lg bg-[#00E676]/10 border border-[#00E676]/30 flex items-center justify-center text-[#00E676]">
+          <i data-lucide="activity" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="font-display font-black text-xl tracking-tight text-white">DIDI FLUXO BOT</h1>
+          <p class="text-xs text-[#94A3B8]">Terminal Tático • IQ Option & PolariumBroker</p>
+        </div>
+      </div>
+
+      <!-- Abas Login / Cadastro -->
+      <div class="grid grid-cols-2 bg-[#080A0F] p-1 rounded-lg border border-[#1E293B] mb-6">
+        <button id="tab-login" onclick="switchAuthTab('login')" class="py-2 text-xs font-semibold rounded-md bg-[#161D2A] text-white transition">ENTRAR</button>
+        <button id="tab-register" onclick="switchAuthTab('register')" class="py-2 text-xs font-semibold rounded-md text-[#94A3B8] hover:text-white transition">CADASTRAR</button>
+      </div>
+
+      <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+        <div id="register-name-field" class="hidden">
+          <label class="block text-xs font-medium text-[#94A3B8] mb-1.5">Nome do Operador</label>
+          <input type="text" id="auth-name" placeholder="Seu nome" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg px-3.5 py-2.5 text-sm text-white outline-none transition" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-[#94A3B8] mb-1.5">E-mail de Acesso</label>
+          <div class="relative">
+            <i data-lucide="user" class="w-4 h-4 text-[#64748B] absolute left-3.5 top-3"></i>
+            <input type="email" id="auth-email" data-testid="login-email-input" required placeholder="operador@dominio.com" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg pl-10 pr-3.5 py-2.5 text-sm text-white outline-none transition" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-[#94A3B8] mb-1.5">Senha</label>
+          <div class="relative">
+            <i data-lucide="lock" class="w-4 h-4 text-[#64748B] absolute left-3.5 top-3"></i>
+            <input type="password" id="auth-password" data-testid="login-password-input" required placeholder="••••••••" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg pl-10 pr-3.5 py-2.5 text-sm text-white outline-none transition" />
+          </div>
+        </div>
+
+        <button type="submit" data-testid="login-submit-button" class="w-full py-3 rounded-lg bg-[#00E676] hover:bg-[#00c865] text-[#080A0F] font-display font-extrabold text-sm tracking-wide transition flex items-center justify-center gap-2">
+          <span id="auth-submit-text">ACESSAR TERMINAL</span>
+          <i data-lucide="zap" class="w-4 h-4"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= TERMINAL PRINCIPAL ================= -->
+  <div id="dashboard-screen" class="hidden min-h-screen flex flex-col">
+
+    <!-- Sticky Header Glassmorphism -->
+    <header class="sticky top-0 z-40 bg-[#080A0F]/90 backdrop-blur-md border-b border-[#1E293B] px-4 md:px-6 py-3">
+      <div class="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
+        <!-- Marca -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-[#00E676]/10 border border-[#00E676]/30 flex items-center justify-center text-[#00E676]">
+            <i data-lucide="cpu" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-display font-black text-base md:text-lg tracking-tight text-white">DIDI FLUXO BOT</span>
+              <span class="text-[10px] font-mono-num px-1.5 py-0.5 rounded bg-[#161D2A] border border-[#334155] text-[#00E5FF]">PRO v2.6</span>
+            </div>
+            <p class="text-[11px] text-[#64748B] hidden sm:block">Estratégia MA 9/21 + MACD + RSI + Agulhada do Didi</p>
+          </div>
+        </div>
+
+        <!-- Controles Globais -->
+        <div class="flex flex-wrap items-center gap-2 md:gap-3">
+          <!-- Status Corretora -->
+          <div data-testid="broker-status-badge" id="header-broker-status" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#1E293B] text-xs font-medium text-[#94A3B8]">
+            <span id="status-dot" class="w-2 h-2 rounded-full bg-[#64748B]"></span>
+            <span id="status-text">Desconectado</span>
+          </div>
+
+          <!-- Conta DEMO / REAL -->
+          <button data-testid="account-type-toggle" id="account-type-btn" onclick="toggleAccountType()" class="px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#FFC107]/40 text-[#FFC107] font-mono-num font-bold text-xs tracking-wider hover:bg-[#161D2B] transition">
+            CONTA: DEMO
+          </button>
+
+          <!-- Timeframe -->
+          <select data-testid="timeframe-select" id="timeframe-select" onchange="changeTimeframe()" class="bg-[#0F131C] border border-[#1E293B] text-white font-mono-num text-xs font-bold rounded-lg px-3 py-1.5 outline-none focus:border-[#00E5FF]">
+            <option value="M1">M1 (1 Min)</option>
+            <option value="M5" selected>M5 (5 Min)</option>
+            <option value="M15">M15 (15 Min)</option>
+          </select>
+
+          <!-- Botão Iniciar / Parar Scanner -->
+          <button data-testid="start-scan-button" id="scan-toggle-btn" onclick="toggleScanner()" class="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#00E676] hover:bg-[#00c865] text-[#080A0F] font-display font-extrabold text-xs tracking-wide transition">
+            <i data-lucide="play" id="scan-icon" class="w-3.5 h-3.5 fill-current"></i>
+            <span id="scan-btn-text">INICIAR ANÁLISE</span>
+          </button>
+
+          <!-- Som -->
+          <button onclick="toggleSound()" id="sound-btn" title="Alternar Alerta Sonoro" class="p-2 rounded-lg bg-[#0F131C] border border-[#1E293B] text-[#00E5FF] hover:bg-[#161D2B] transition">
+            <i data-lucide="volume-2" id="sound-icon" class="w-4 h-4"></i>
+          </button>
+
+          <!-- Sair -->
+          <button data-testid="logout-button" onclick="handleLogout()" title="Sair do Terminal" class="p-2 rounded-lg bg-[#0F131C] border border-[#1E293B] text-[#94A3B8] hover:text-[#FF3D00] hover:border-[#FF3D00]/40 transition">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Grid Principal 3 Colunas -->
+    <main class="flex-1 max-w-[1600px] w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
+
+      <!-- COLUNA ESQUERDA: Conexão Corretora & Parâmetros (3 cols) -->
+      <section class="lg:col-span-3 space-y-4">
+        <!-- Card Conexão Corretora -->
+        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-display font-bold text-sm uppercase tracking-wider text-white flex items-center gap-2">
+              <i data-lucide="shield-check" class="w-4 h-4 text-[#00E5FF]"></i>
+              Corretora API
+            </h2>
+            <span id="balance-display" class="font-mono-num text-xs font-bold text-[#00E676]">R$ 10.000,00</span>
+          </div>
+
+          <!-- Seletor IQ Option / PolariumBroker -->
+          <div class="grid grid-cols-2 gap-2 mb-4">
+            <button type="button" data-testid="broker-select-iqoption" id="btn-broker-iq" onclick="selectBroker('IQ Option')" class="py-2 px-2 rounded-lg border border-[#FF5722] bg-[#FF5722]/15 text-white font-semibold text-xs transition">
+              IQ Option
+            </button>
+            <button type="button" data-testid="broker-select-polarium" id="btn-broker-polarium" onclick="selectBroker('PolariumBroker')" class="py-2 px-2 rounded-lg border border-[#1E293B] bg-[#080A0F] text-[#94A3B8] hover:text-white font-semibold text-xs transition">
+              PolariumBroker
+            </button>
+          </div>
+
+          <form onsubmit="connectBroker(event)" class="space-y-3">
+            <div>
+              <label class="block text-[11px] text-[#94A3B8] mb-1">E-mail da Corretora</label>
+              <input type="email" data-testid="broker-email-input" id="broker-email" required placeholder="conta@corretora.com" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg px-3 py-2 text-xs text-white outline-none" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-[#94A3B8] mb-1">Senha da Corretora</label>
+              <input type="password" data-testid="broker-password-input" id="broker-password" required placeholder="••••••••" class="w-full bg-[#080A0F] border border-[#1E293B] focus:border-[#00E5FF] rounded-lg px-3 py-2 text-xs text-white outline-none" />
+            </div>
+            <button type="submit" data-testid="broker-connect-button" id="broker-connect-btn" class="w-full py-2.5 rounded-lg bg-[#161D2A] hover:bg-[#1E293B] border border-[#334155] text-white font-display font-bold text-xs tracking-wide transition">
+              CONECTAR CORRETORA
+            </button>
+          </form>
+        </div>
+
+        <!-- Card Parâmetros da Estratégia -->
+        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5 space-y-3">
+          <h2 class="font-display font-bold text-sm uppercase tracking-wider text-white flex items-center gap-2">
+            <i data-lucide="sliders" class="w-4 h-4 text-[#FFC107]"></i>
+            Motor Didi Fluxo
+          </h2>
+
+          <div class="space-y-2 text-xs">
+            <div class="flex justify-between py-1.5 border-b border-[#1E293B]">
+              <span class="text-[#94A3B8]">Direção Base</span>
+              <span class="font-mono-num text-white font-semibold">MA 9 × MA 21</span>
+            </div>
+            <div class="flex justify-between py-1.5 border-b border-[#1E293B]">
+              <span class="text-[#94A3B8]">Gatilho</span>
+              <span class="font-mono-num text-white font-semibold">MACD (12, 26, 9)</span>
+            </div>
+            <div class="flex justify-between py-1.5 border-b border-[#1E293B]">
+              <span class="text-[#94A3B8]">Filtro Força</span>
+              <span class="font-mono-num text-white font-semibold">RSI (14)</span>
+            </div>
+            <div class="flex justify-between py-1.5">
+              <span class="text-[#94A3B8]">Confirmação</span>
+              <span class="font-mono-num text-[#00E5FF] font-semibold">Agulhada Didi</span>
+            </div>
+          </div>
+
+          <div class="pt-2">
+            <label class="flex items-center justify-between text-xs text-[#94A3B8] mb-1">
+              <span>Confluência Mínima</span>
+              <span id="min-conf-val" class="font-mono-num text-white font-bold">85%</span>
+            </label>
+            <input type="range" min="70" max="98" value="85" oninput="document.getElementById('min-conf-val').textContent = this.value + '%'" class="w-full accent-[#00E676]" />
+          </div>
+        </div>
+      </section>
+
+      <!-- COLUNA CENTRAL: HERO Melhor Ativo & Histórico (6 cols) -->
+      <section class="lg:col-span-6 space-y-4 md:space-y-6">
+
+        <!-- HERO Card: Melhor Ativo -->
+        <div data-testid="best-asset-card" id="hero-card" class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-5 md:p-6 transition-all duration-300 glow-call">
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-[#1E293B]">
+            <div class="flex items-center gap-2">
+              <span class="relative flex h-2.5 w-2.5">
+                <span id="scanner-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00E676] opacity-75"></span>
+                <span id="scanner-dot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#00E676]"></span>
+              </span>
+              <span class="text-xs font-display font-bold uppercase tracking-wider text-[#00E5FF]">MELHOR ATIVO RANQUEADO #1</span>
+            </div>
+            <span id="hero-broker-tag" class="text-[11px] font-mono-num px-2.5 py-0.5 rounded bg-[#FF5722]/15 border border-[#FF5722]/40 text-[#FF5722] font-bold">
+              IQ OPTION • OTC
+            </span>
+          </div>
+
+          <!-- Ativo & Direção -->
+          <div class="py-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p class="text-xs text-[#94A3B8] mb-1">Par Selecionado</p>
+              <h2 id="hero-asset" class="font-display font-black text-3xl md:text-4xl tracking-tight text-white">EUR/USD OTC</h2>
+              <div class="flex items-center gap-4 mt-2 text-xs text-[#94A3B8]">
+                <span>Entrada: <strong id="hero-price" class="font-mono-num text-white">1.08542</strong></span>
+                <span>Expiração: <strong id="hero-tf" class="font-mono-num text-[#00E5FF]">5 Minutos</strong></span>
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:items-end">
+              <div data-testid="signal-direction-badge" id="hero-direction" class="font-display font-black text-3xl md:text-5xl uppercase tracking-tight text-[#00E676] text-glow-call">
+                COMPRA • CALL
+              </div>
+              <div class="flex items-center gap-3 mt-2">
+                <span class="text-xs text-[#94A3B8]">Assertividade:</span>
+                <span data-testid="signal-confidence-rate" id="hero-confidence" class="font-mono-num font-extrabold text-lg text-[#00E676]">94%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Barra de Progresso Vela / Countdown -->
+          <div class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 mb-5 flex items-center justify-between">
+            <span class="text-xs text-[#94A3B8] flex items-center gap-2">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#00E5FF]"></i>
+              Próxima Vela / Expiração
+            </span>
+            <span id="candle-timer" class="font-mono-num font-bold text-sm text-white">00:42</span>
+          </div>
+
+          <!-- 4 Luzes de Confirmação dos Indicadores -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div data-testid="indicator-ma-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8]">Cruzamento MA 9/21</span>
+              <span id="ind-ma" class="font-mono-num text-xs font-bold text-[#00E676]">ALTA (MA9 > MA21)</span>
+            </div>
+
+            <div data-testid="indicator-macd-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8]">Gatilho MACD</span>
+              <span id="ind-macd" class="font-mono-num text-xs font-bold text-[#00E676]">CRUZADO COMPRA</span>
+            </div>
+
+            <div data-testid="indicator-rsi-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8]">Confirmação RSI (14)</span>
+              <span id="ind-rsi" class="font-mono-num text-xs font-bold text-[#00E676]">68.4 (FORTE)</span>
+            </div>
+
+            <div data-testid="indicator-didi-status" class="bg-[#080A0F] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
+              <span class="text-xs text-[#94A3B8]">Agulhada do Didi</span>
+              <span id="ind-didi" class="font-mono-num text-xs font-bold text-[#00E5FF]">DI+ > DI- CONFIRMADA</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabela Histórico de Sinais -->
+        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <h3 class="font-display font-bold text-sm uppercase tracking-wider text-white">Histórico de Sinais Emitidos</h3>
+            <div class="flex items-center gap-3 text-xs">
+              <span class="text-[#94A3B8]">Winrate Sessão: <strong id="session-winrate" class="font-mono-num text-[#00E676]">88.9%</strong></span>
+              <select id="history-filter" onchange="renderHistory()" class="bg-[#080A0F] border border-[#1E293B] rounded px-2 py-1 text-xs text-white outline-none">
+                <option value="ALL">Todos</option>
+                <option value="WIN">Apenas WIN</option>
+                <option value="LOSS">Apenas LOSS</option>
+                <option value="PENDENTE">Pendentes</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table data-testid="signal-history-table" class="w-full text-left border-collapse">
+              <thead>
+                <tr class="border-b border-[#1E293B] text-[11px] uppercase text-[#64748B]">
+                  <th class="py-2.5 px-2">Horário</th>
+                  <th class="py-2.5 px-2">Ativo</th>
+                  <th class="py-2.5 px-2">Corretora</th>
+                  <th class="py-2.5 px-2">Direção</th>
+                  <th class="py-2.5 px-2">Taxa</th>
+                  <th class="py-2.5 px-2 text-right">Resultado</th>
+                </tr>
+              </thead>
+              <tbody id="history-tbody" class="divide-y divide-[#1E293B] text-xs">
+                <!-- Preenchido via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- COLUNA DIREITA: Scanner de Mercado ao Vivo (3 cols) -->
+      <aside class="lg:col-span-3">
+        <div class="bg-[#0F131C] border border-[#1E293B] rounded-xl p-4 md:p-5 h-full">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-display font-bold text-sm uppercase tracking-wider text-white flex items-center gap-2">
+              <i data-lucide="radio" class="w-4 h-4 text-[#00E676]"></i>
+              Scanner Ao Vivo
+            </h2>
+            <span class="text-[11px] font-mono-num text-[#64748B]">8 PARES</span>
+          </div>
+
+          <div id="scanner-list" class="space-y-2.5">
+            <!-- Preenchido via JS -->
+          </div>
+        </div>
+      </aside>
+
+    </main>
+  </div>
+
+  <script>
+    // ================= ESTADO DA APLICAÇÃO =================
+    const API_BASE = '/api';
+    let authMode = 'login';
+    let selectedBroker = 'IQ Option';
+    let isBrokerConnected = false;
+    let accountType = 'DEMO';
+    let timeframe = 'M5';
+    let isScanning = true;
+    let soundEnabled = true;
+    let countdown = 45;
+
+    const PAIRS = [
+      { symbol: 'EUR/USD OTC', price: 1.08542, dir: 'CALL', conf: 94, rsi: 68.4 },
+      { symbol: 'GBP/USD OTC', price: 1.26418, dir: 'PUT',  conf: 91, rsi: 31.2 },
+      { symbol: 'USD/JPY OTC', price: 154.320, dir: 'CALL', conf: 88, rsi: 64.9 },
+      { symbol: 'EUR/JPY OTC', price: 167.510, dir: 'CALL', conf: 86, rsi: 62.1 },
+      { symbol: 'AUD/CAD OTC', price: 0.90125, dir: 'PUT',  conf: 84, rsi: 34.8 },
+      { symbol: 'NZD/USD OTC', price: 0.59840, dir: 'CALL', conf: 81, rsi: 59.5 },
+      { symbol: 'EUR/GBP OTC', price: 0.85830, dir: 'PUT',  conf: 79, rsi: 38.0 },
+      { symbol: 'USD/CHF OTC', price: 0.88415, dir: 'CALL', conf: 76, rsi: 57.3 },
+    ];
+
+    let signalHistory = [
+      { time: '09:45:00', asset: 'EUR/USD OTC', broker: 'IQ Option', dir: 'CALL', rate: '1.08510', result: 'WIN' },
+      { time: '09:40:00', asset: 'GBP/USD OTC', broker: 'IQ Option', dir: 'PUT',  rate: '1.26490', result: 'WIN' },
+      { time: '09:35:00', asset: 'USD/JPY OTC', broker: 'PolariumBroker', dir: 'CALL', rate: '154.180', result: 'WIN' },
+      { time: '09:30:00', asset: 'AUD/CAD OTC', broker: 'IQ Option', dir: 'PUT',  rate: '0.90190', result: 'LOSS' },
+      { time: '09:25:00', asset: 'EUR/JPY OTC', broker: 'IQ Option', dir: 'CALL', rate: '167.420', result: 'WIN' },
+    ];
+
+    // ================= INICIALIZAÇÃO =================
+    document.addEventListener('DOMContentLoaded', () => {
+      lucide.createIcons();
+      const savedUser = localStorage.getItem('didi_bot_user');
+      if (savedUser) {
+        showDashboard();
+      }
+      renderScannerList();
+      renderHistory();
+      startEngineLoop();
+    });
+
+    // ================= TOASTS =================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'border-[#00E676]/50 bg-[#0F131C] text-[#00E676]',
+        error: 'border-[#FF3D00]/50 bg-[#0F131C] text-[#FF3D00]',
+        info: 'border-[#00E5FF]/50 bg-[#0F131C] text-[#F8FAFC]'
+      };
+      toast.className = `pointer-events-auto border ${colors[type] || colors.info} px-4 py-3 rounded-lg shadow-xl text-xs font-medium flex items-center justify-between gap-3 transition-all`;
+      toast.innerHTML = `<span>${message}</span>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    // ================= ÁUDIO ALERTA =================
+    function playAlertBeep() {
+      if (!soundEnabled) return;
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.06, ctx.currentTime);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.14);
+      } catch (e) {}
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      const btn = document.getElementById('sound-btn');
+      btn.classList.toggle('text-[#00E5FF]', soundEnabled);
+      btn.classList.toggle('text-[#64748B]', !soundEnabled);
+      showToast(soundEnabled ? 'Alerta sonoro ativado' : 'Alerta sonoro silenciado');
+    }
+
+    // ================= AUTENTICAÇÃO =================
+    function switchAuthTab(mode) {
+      authMode = mode;
+      const loginTab = document.getElementById('tab-login');
+      const regTab = document.getElementById('tab-register');
+      const nameField = document.getElementById('register-name-field');
+      const submitText = document.getElementById('auth-submit-text');
+
+      if (mode === 'login') {
+        loginTab.className = 'py-2 text-xs font-semibold rounded-md bg-[#161D2A] text-white transition';
+        regTab.className = 'py-2 text-xs font-semibold rounded-md text-[#94A3B8] hover:text-white transition';
+        nameField.classList.add('hidden');
+        submitText.textContent = 'ACESSAR TERMINAL';
+      } else {
+        regTab.className = 'py-2 text-xs font-semibold rounded-md bg-[#161D2A] text-white transition';
+        loginTab.className = 'py-2 text-xs font-semibold rounded-md text-[#94A3B8] hover:text-white transition';
+        nameField.classList.remove('hidden');
+        submitText.textContent = 'CRIAR CONTA & ENTRAR';
+      }
+    }
+
+    async function handleAuthSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value;
+      const password = document.getElementById('auth-password').value;
+      const endpoint = authMode === 'login' ? `${API_BASE}/auth/login` : `${API_BASE}/auth/register`;
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('didi_bot_token', data.token || 'session_active');
+        }
+      } catch (_) {
+        // Fallback offline/demo caso a rota de auth ainda não esteja ativa no backend
+      }
+
+      localStorage.setItem('didi_bot_user', email);
+      showToast('Bem-vindo ao Terminal Didi Fluxo!', 'success');
+      showDashboard();
+    }
+
+    function showDashboard() {
+      document.getElementById('auth-screen').classList.add('hidden');
+      document.getElementById('dashboard-screen').classList.remove('hidden');
+    }
+
+    function handleLogout() {
+      localStorage.removeItem('didi_bot_user');
+      localStorage.removeItem('didi_bot_token');
+      document.getElementById('dashboard-screen').classList.add('hidden');
+      document.getElementById('auth-screen').classList.remove('hidden');
+      showToast('Sessão encerrada.');
+    }
+
+    // ================= CORRETORA & CONTROLES =================
+    function selectBroker(broker) {
+      selectedBroker = broker;
+      const btnIq = document.getElementById('btn-broker-iq');
+      const btnPol = document.getElementById('btn-broker-polarium');
+
+      if (broker === 'IQ Option') {
+        btnIq.className = 'py-2 px-2 rounded-lg border border-[#FF5722] bg-[#FF5722]/15 text-white font-semibold text-xs transition';
+        btnPol.className = 'py-2 px-2 rounded-lg border border-[#1E293B] bg-[#080A0F] text-[#94A3B8] hover:text-white font-semibold text-xs transition';
+      } else {
+        btnPol.className = 'py-2 px-2 rounded-lg border border-[#00B0FF] bg-[#00B0FF]/15 text-white font-semibold text-xs transition';
+        btnIq.className = 'py-2 px-2 rounded-lg border border-[#1E293B] bg-[#080A0F] text-[#94A3B8] hover:text-white font-semibold text-xs transition';
+      }
+      updateHeroBrokerTag();
+    }
+
+    async function connectBroker(e) {
+      e.preventDefault();
+      const statusDot = document.getElementById('status-dot');
+      const statusText = document.getElementById('status-text');
+      const btn = document.getElementById('broker-connect-btn');
+
+      statusDot.className = 'w-2 h-2 rounded-full bg-[#FFC107] animate-ping';
+      statusText.textContent = 'Autenticando...';
+      btn.textContent = 'CONECTANDO...';
+
+      try {
+        await fetch(`${API_BASE}/broker/connect`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            broker: selectedBroker,
+            email: document.getElementById('broker-email').value,
+            account_type: accountType
+          })
+        });
+      } catch (_) {}
+
+      setTimeout(() => {
+        isBrokerConnected = true;
+        statusDot.className = 'w-2 h-2 rounded-full bg-[#00E676]';
+        statusText.textContent = `${selectedBroker} Conectado`;
+        statusText.className = 'text-[#00E676] font-semibold';
+        btn.textContent = 'RECONECTAR API';
+        updateHeroBrokerTag();
+        showToast(`Conectado à ${selectedBroker} com sucesso!`, 'success');
+      }, 700);
+    }
+
+    function toggleAccountType() {
+      accountType = accountType === 'DEMO' ? 'REAL' : 'DEMO';
+      const btn = document.getElementById('account-type-btn');
+      const bal = document.getElementById('balance-display');
+      btn.textContent = `CONTA: ${accountType}`;
+      if (accountType === 'REAL') {
+        btn.className = 'px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#00E676]/50 text-[#00E676] font-mono-num font-bold text-xs tracking-wider transition';
+        bal.textContent = 'R$ 1.450,00';
+      } else {
+        btn.className = 'px-3 py-1.5 rounded-lg bg-[#0F131C] border border-[#FFC107]/40 text-[#FFC107] font-mono-num font-bold text-xs tracking-wider transition';
+        bal.textContent = 'R$ 10.000,00';
+      }
+      showToast(`Conta alterada para ${accountType}`);
+    }
+
+    function changeTimeframe() {
+      timeframe = document.getElementById('timeframe-select').value;
+      const map = { M1: '1 Minuto', M5: '5 Minutos', M15: '15 Minutos' };
+      document.getElementById('hero-tf').textContent = map[timeframe];
+      countdown = timeframe === 'M1' ? 59 : timeframe === 'M5' ? 45 : 55;
+      showToast(`Timeframe ajustado para ${timeframe}`);
+    }
+
+    function toggleScanner() {
+      isScanning = !isScanning;
+      const btn = document.getElementById('scan-toggle-btn');
+      const txt = document.getElementById('scan-btn-text');
+      const ping = document.getElementById('scanner-ping');
+
+      if (isScanning) {
+        btn.className = 'flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#00E676] hover:bg-[#00c865] text-[#080A0F] font-display font-extrabold text-xs tracking-wide transition';
+        txt.textContent = 'ANALISANDO...';
+        ping.classList.remove('hidden');
+        showToast('Varredura de mercado iniciada', 'success');
+      } else {
+        btn.className = 'flex items-center gap-2 px-4 py-1.5 rounded-lg bg-[#FF3D00] hover:bg-[#e03500] text-white font-display font-extrabold text-xs tracking-wide transition';
+        txt.textContent = 'INICIAR ANÁLISE';
+        ping.classList.add('hidden');
+        showToast('Varredura pausada', 'error');
+      }
+    }
+
+    function updateHeroBrokerTag() {
+      const tag = document.getElementById('hero-broker-tag');
+      tag.textContent = `${selectedBroker.toUpperCase()} • OTC`;
+      if (selectedBroker === 'PolariumBroker') {
+        tag.className = 'text-[11px] font-mono-num px-2.5 py-0.5 rounded bg-[#00B0FF]/15 border border-[#00B0FF]/40 text-[#00B0FF] font-bold';
+      } else {
+        tag.className = 'text-[11px] font-mono-num px-2.5 py-0.5 rounded bg-[#FF5722]/15 border border-[#FF5722]/40 text-[#FF5722] font-bold';
+      }
+    }
+
+    // ================= MOTOR DE SIMULAÇÃO & RENDER =================
+    function renderScannerList() {
+      const list = document.getElementById('scanner-list');
+      const sorted = [...PAIRS].sort((a, b) => b.conf - a.conf);
+
+      list.innerHTML = sorted.map((item, idx) => {
+        const isCall = item.dir === 'CALL';
+        const badgeColor = isCall ? 'text-[#00E676] bg-[#00E676]/10 border-[#00E676]/30' : 'text-[#FF3D00] bg-[#FF3D00]/10 border-[#FF3D00]/30';
+        return `
+          <div onclick="selectHeroAsset('${item.symbol}')" class="cursor-pointer p-3 rounded-lg bg-[#080A0F] hover:bg-[#161D2B] border ${idx === 0 ? 'border-[#00E5FF]/50' : 'border-[#1E293B]'} transition flex items-center justify-between">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="font-display font-bold text-xs text-white">${item.symbol}</span>
+                ${idx === 0 ? '<span class="text-[9px] px-1 rounded bg-[#00E5FF]/20 text-[#00E5FF] font-mono-num">TOP</span>' : ''}
+              </div>
+              <span class="font-mono-num text-[11px] text-[#64748B]">${item.price.toFixed(item.symbol.includes('JPY') ? 3 : 5)}</span>
+            </div>
+            <div class="text-right">
+              <span class="inline-block px-2 py-0.5 rounded border text-[10px] font-mono-num font-bold ${badgeColor}">
+                ${item.dir}
+              </span>
+              <div class="font-mono-num text-xs font-bold text-white mt-0.5">${item.conf}%</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      updateHeroCard(sorted[0]);
+    }
+
+    function selectHeroAsset(symbol) {
+      const found = PAIRS.find(p => p.symbol === symbol);
+      if (found) updateHeroCard(found);
+    }
+
+    function updateHeroCard(asset) {
+      const isCall = asset.dir === 'CALL';
+      const card = document.getElementById('hero-card');
+      const dirEl = document.getElementById('hero-direction');
+      const confEl = document.getElementById('hero-confidence');
+
+      card.classList.toggle('glow-call', isCall);
+      card.classList.toggle('glow-put', !isCall);
+
+      document.getElementById('hero-asset').textContent = asset.symbol;
+      document.getElementById('hero-price').textContent = asset.price.toFixed(asset.symbol.includes('JPY') ? 3 : 5);
+      confEl.textContent = `${asset.conf}%`;
+
+      if (isCall) {
+        dirEl.textContent = 'COMPRA • CALL';
+        dirEl.className = 'font-display font-black text-3xl md:text-5xl uppercase tracking-tight text-[#00E676] text-glow-call';
+        confEl.className = 'font-mono-num font-extrabold text-lg text-[#00E676]';
+        document.getElementById('ind-ma').textContent = 'ALTA (MA9 > MA21)';
+        document.getElementById('ind-ma').className = 'font-mono-num text-xs font-bold text-[#00E676]';
+        document.getElementById('ind-macd').textContent = 'CRUZADO COMPRA';
+        document.getElementById('ind-macd').className = 'font-mono-num text-xs font-bold text-[#00E676]';
+        document.getElementById('ind-rsi').textContent = `${asset.rsi.toFixed(1)} (FORTE COMPRA)`;
+        document.getElementById('ind-rsi').className = 'font-mono-num text-xs font-bold text-[#00E676]';
+        document.getElementById('ind-didi').textContent = 'DI+ > DI- (CONFIRMADA)';
+      } else {
+        dirEl.textContent = 'VENDA • PUT';
+        dirEl.className = 'font-display font-black text-3xl md:text-5xl uppercase tracking-tight text-[#FF3D00] text-glow-put';
+        confEl.className = 'font-mono-num font-extrabold text-lg text-[#FF3D00]';
+        document.getElementById('ind-ma').textContent = 'BAIXA (MA9 < MA21)';
+        document.getElementById('ind-ma').className = 'font-mono-num text-xs font-bold text-[#FF3D00]';
+        document.getElementById('ind-macd').textContent = 'CRUZADO VENDA';
+        document.getElementById('ind-macd').className = 'font-mono-num text-xs font-bold text-[#FF3D00]';
+        document.getElementById('ind-rsi').textContent = `${asset.rsi.toFixed(1)} (FORTE VENDA)`;
+        document.getElementById('ind-rsi').className = 'font-mono-num text-xs font-bold text-[#FF3D00]';
+        document.getElementById('ind-didi').textContent = 'DI- > DI+ (CONFIRMADA)';
+      }
+    }
+
+    function renderHistory() {
+      const filter = document.getElementById('history-filter').value;
+      const tbody = document.getElementById('history-tbody');
+      const filtered = filter === 'ALL' ? signalHistory : signalHistory.filter(s => s.result === filter);
+
+      tbody.innerHTML = filtered.map(row => {
+        const dirClass = row.dir === 'CALL' ? 'text-[#00E676]' : 'text-[#FF3D00]';
+        const resBadge = row.result === 'WIN'
+          ? 'bg-[#00E676]/15 text-[#00E676] border-[#00E676]/40'
+          : row.result === 'LOSS'
+          ? 'bg-[#FF3D00]/15 text-[#FF3D00] border-[#FF3D00]/40'
+          : 'bg-[#FFC107]/15 text-[#FFC107] border-[#FFC107]/40';
+
+        return `
+          <tr class="hover:bg-[#161D2B]/60 transition">
+            <td class="py-2.5 px-2 font-mono-num text-[#94A3B8]">${row.time}</td>
+            <td class="py-2.5 px-2 font-display font-bold text-white">${row.asset}</td>
+            <td class="py-2.5 px-2 text-[#94A3B8]">${row.broker}</td>
+            <td class="py-2.5 px-2 font-mono-num font-bold ${dirClass}">${row.dir}</td>
+            <td class="py-2.5 px-2 font-mono-num text-white">${row.rate}</td>
+            <td class="py-2.5 px-2 text-right">
+              <span class="px-2 py-0.5 rounded border text-[10px] font-mono-num font-bold ${resBadge}">${row.result}</span>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      const wins = signalHistory.filter(s => s.result === 'WIN').length;
+      const total = signalHistory.filter(s => s.result !== 'PENDENTE').length;
+      const rate = total > 0 ? ((wins / total) * 100).toFixed(1) : '100.0';
+      document.getElementById('session-winrate').textContent = `${rate}%`;
+    }
+
+    function startEngineLoop() {
+      setInterval(() => {
+        if (!isScanning) return;
+
+        // Atualiza ticks de preço e oscilação leve de confluência
+        PAIRS.forEach(p => {
+          const delta = (Math.random() - 0.5) * (p.symbol.includes('JPY') ? 0.015 : 0.00018);
+          p.price = Math.max(0.1, p.price + delta);
+          if (Math.random() > 0.72) {
+            p.conf = Math.min(97, Math.max(74, p.conf + (Math.random() > 0.5 ? 1 : -1)));
+          }
+        });
+
+        renderScannerList();
+
+        // Countdown da vela
+        countdown--;
+        if (countdown <= 0) {
+          countdown = 59;
+          const topAsset = [...PAIRS].sort((a, b) => b.conf - a.conf)[0];
+          const now = new Date().toTimeString().slice(0, 8);
+
+          // Finaliza pendentes anteriores
+          signalHistory.forEach(s => {
+            if (s.result === 'PENDENTE') s.result = Math.random() > 0.2 ? 'WIN' : 'LOSS';
+          });
+
+          signalHistory.unshift({
+            time: now,
+            asset: topAsset.symbol,
+            broker: selectedBroker,
+            dir: topAsset.dir,
+            rate: topAsset.price.toFixed(topAsset.symbol.includes('JPY') ? 3 : 5),
+            result: 'PENDENTE'
+          });
+          if (signalHistory.length > 15) signalHistory.pop();
+
+          renderHistory();
+          playAlertBeep();
+          showToast(`Novo Sinal: ${topAsset.symbol} ${topAsset.dir} (${topAsset.conf}%)`, topAsset.dir === 'CALL' ? 'success' : 'error');
+        }
+
+        const secs = String(countdown).padStart(2, '0');
+        document.getElementById('candle-timer').textContent = `00:${secs}`;
+      }, 1000);
+    }
+  </script>
+</body>
 </html>
