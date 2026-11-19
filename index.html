@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Didi Fluxo Bot — Terminal de Sinais</title>
+  <title>Purple Signal — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
@@ -29,7 +29,7 @@
     <div class="panel w-full max-w-md p-7">
       <div class="flex items-center gap-3 mb-6">
         <div class="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-2xl font-black tracking-wide">DIDI <span class="text-cyan-300">FLUXO</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
+        <div><h1 class="text-2xl font-black tracking-wide">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
       </div>
       <div class="flex gap-2 mb-5">
         <button id="mode-login" class="btn btn-primary flex-1" type="button">Entrar</button>
@@ -50,7 +50,7 @@
     <header class="header-wrap flex justify-between gap-4 mb-5">
       <div class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">DIDI <span class="text-cyan-300">FLUXO BOT</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
@@ -124,7 +124,7 @@
         <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
         <div class="border-t border-slate-700 mt-4 pt-4">
           <h3 class="text-sm font-bold mb-2">Indicadores</h3>
-          <div id="indicator-details" class="text-xs muted">Os indicadores serão exibidos somente se a API os retornar.</div>
+          <div id="indicator-details" class="text-xs muted space-y-1">Os indicadores serão exibidos em formato legível quando a API os retornar.</div>
         </div>
       </aside>
     </section>
@@ -136,7 +136,7 @@
   'use strict';
   const API='/api';
   const $=id=>document.getElementById(id);
-  let authMode='login', token=localStorage.getItem('didi_api_token')||'';
+  let authMode='login', token=localStorage.getItem('purple_signal_api_token')||'';
   let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
   let pollTimers=[];
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
@@ -183,16 +183,16 @@
       if(authMode==='register')body.name=$('auth-name').value.trim();
       if(authMode==='register'&&!body.name)throw new Error('Informe seu nome.');
       const result=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});
-      if(result.token){token=result.token;localStorage.setItem('didi_api_token',token)}
+      if(result.token){token=result.token;localStorage.setItem('purple_signal_api_token',token)}
       const me=await api('/auth/me');
       user=me.user||me;
       showDashboard();await refreshAll();startPolling();
-    }catch(err){token='';localStorage.removeItem('didi_api_token');$('auth-error').textContent=err.message||'Não foi possível autenticar.'}
+    }catch(err){token='';localStorage.removeItem('purple_signal_api_token');$('auth-error').textContent=err.message||'Não foi possível autenticar.'}
     finally{$('auth-submit').disabled=false}
   });
   $('logout-btn').addEventListener('click',async()=>{
     try{await api('/auth/logout',{method:'POST'})}catch(_){}
-    token='';localStorage.removeItem('didi_api_token');showLogin('Sessão encerrada.');
+    token='';localStorage.removeItem('purple_signal_api_token');showLogin('Sessão encerrada.');
   });
   async function restoreSession(){
     try{const me=await api('/auth/me');user=me.user||me;showDashboard();await refreshAll();startPolling()}
@@ -301,8 +301,55 @@
     $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
     $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
     $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators||x.analysis||null;
-    $('indicator-details').textContent=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
+    const ind=x.indicators||x.analysis||x.metrics||null;
+    renderIndicators(ind);
+  }
+  function humanizeKey(key){
+    return String(key).replace(/[_-]+/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2')
+      .replace(/\bma(\d+)\b/gi,'Média móvel $1')
+      .replace(/\bema(\d+)\b/gi,'EMA $1')
+      .replace(/\brsi\b/gi,'RSI')
+      .replace(/\badx\b/gi,'ADX')
+      .replace(/\bdi ?plus\b/gi,'DI+')
+      .replace(/\bdi ?minus\b/gi,'DI−')
+      .replace(/\bmacd\b/gi,'MACD')
+      .replace(/\batr\b/gi,'ATR')
+      .replace(/\bvolume\b/gi,'Volume')
+      .replace(/\b[a-z]/g,c=>c.toUpperCase());
+  }
+  function formatIndicatorValue(value){
+    if(value===null||value===undefined||value==='')return '—';
+    if(typeof value==='boolean')return value?'Sim':'Não';
+    if(typeof value==='number')return Number.isFinite(value)?value.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
+    if(typeof value==='string')return value;
+    return null;
+  }
+  function renderIndicators(data){
+    const target=$('indicator-details');
+    if(data===null||data===undefined||data===''){
+      target.textContent='A API não retornou valores detalhados dos indicadores para este sinal.';
+      return;
+    }
+    const entries=[];
+    function collect(value,label,depth=0){
+      if(depth>3||value===null||value===undefined)return;
+      if(Array.isArray(value)){
+        value.forEach((item,index)=>collect(item,`${label} ${index+1}`,depth+1));
+        return;
+      }
+      if(typeof value==='object'){
+        Object.entries(value).forEach(([key,item])=>collect(item,label?`${label} · ${humanizeKey(key)}`:humanizeKey(key),depth+1));
+        return;
+      }
+      const formatted=formatIndicatorValue(value);
+      if(formatted!==null)entries.push({label:label||'Indicador',value:formatted});
+    }
+    collect(data,'');
+    if(!entries.length){
+      target.textContent='A API retornou dados, mas não há valores de indicadores em formato reconhecível.';
+      return;
+    }
+    target.innerHTML=entries.map(item=>`<div class="flex items-center justify-between gap-3 py-2 border-b border-slate-700/60 last:border-0"><span class="muted">${escapeHtml(item.label)}</span><strong class="text-slate-100 text-right break-all">${escapeHtml(item.value)}</strong></div>`).join('');
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   async function refreshScan(){
