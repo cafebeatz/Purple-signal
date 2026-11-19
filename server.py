@@ -486,7 +486,7 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
 
 # -------- App setup --------
-app.include_router(api)
+app.include_router(app)
 
 app.add_middleware(
     CORSMiddleware,
