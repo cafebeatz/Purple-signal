@@ -45,11 +45,15 @@ JWT_ALG = "HS256"
 ACCESS_MIN = 60 * 24  # 24h
 
 app = FastAPI(title="Purple Signal Analyst")
+
+# Rota para servir o frontend
 @app.get("/")
 def index():
     from fastapi.responses import FileResponse
     return FileResponse(ROOT_DIR / "index.html")
 
+# Router para as rotas da API com prefixo /api
+api_router = APIRouter(prefix="/api")
 
 # -------- Models --------
 class RegisterIn(BaseModel):
@@ -185,7 +189,7 @@ async def _auto_trade(state: dict, session: BrokerSession, doc: dict) -> None:
         state["message"] = f"Entrada automática: {doc['asset']} {doc['direction']} {session.currency} {amount:.2f}"
     except ConnectionError:
         raise
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         doc["trade"] = {"order_id": None, "amount": amount, "status": "ERRO", "error": str(e)[:200], "profit": None}
         state["message"] = f"Falha na entrada automática: {str(e)[:120]}"
 
@@ -240,7 +244,7 @@ async def _scan_loop(user_id: str) -> None:
             session.connected = False
             state["message"] = "Conexão com a corretora perdida. Reconecte a conta."
             break
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.exception("Erro no scan loop: %s", e)
             await asyncio.sleep(2.0)
 
@@ -267,7 +271,6 @@ def _price_at_expiry(sig: dict, candles: list[dict]) -> float:
 
 
 async def _settle_pending(user_id: str, session: BrokerSession) -> None:
-    """WIN/LOSS: ordem real pelo resultado da corretora; senão pelo preço na expiração."""
     now = datetime.now(timezone.utc)
     pending = await db.signals.find(
         {"user_id": user_id, "result": "PENDENTE", "expires_at": {"$lte": now.isoformat()}}, {"_id": 0}
@@ -299,12 +302,12 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
 
 
 # -------- Routes: Auth --------
-@app.get("/")
+@api_router.get("/")
 async def root():
     return {"service": "Purple Signal Analyst", "status": "ok"}
 
 
-@app.post("/auth/register")
+@api_router.post("/auth/register")
 async def register(payload: RegisterIn, response: Response):
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
@@ -323,7 +326,7 @@ async def register(payload: RegisterIn, response: Response):
     return {"token": token, "user": {"id": user["id"], "email": email, "name": user["name"], "role": "user"}}
 
 
-@app.post("/auth/login")
+@api_router.post("/auth/login")
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
     user = await db.users.find_one({"email": email})
@@ -337,21 +340,20 @@ async def login(payload: LoginIn, response: Response):
     }
 
 
-@app.post("/auth/logout")
+@api_router.post("/auth/logout")
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
 
 
-@app.get("/auth/me")
+@api_router.get("/auth/me")
 async def me(user=Depends(get_current_user)):
     return {"user": user}
 
 
 # -------- Routes: Broker --------
-@app.post("/broker/connect")
+@api_router.post("/broker/connect")
 async def broker_connect(payload: BrokerConnectIn, user=Depends(get_current_user)):
-    # desconecta sessão antiga
     old = _BROKER_SESSIONS.pop(user["id"], None)
     if old:
         await _stop_scan(user["id"])
@@ -379,7 +381,7 @@ def _session_out(session: BrokerSession) -> dict:
     }
 
 
-@app.post("/broker/disconnect")
+@api_router.post("/broker/disconnect")
 async def broker_disconnect(user=Depends(get_current_user)):
     await _stop_scan(user["id"])
     state = _state(user["id"])
@@ -393,7 +395,7 @@ async def broker_disconnect(user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@app.get("/broker/status")
+@api_router.get("/broker/status")
 async def broker_status(user=Depends(get_current_user)):
     session = _BROKER_SESSIONS.get(user["id"])
     if not session:
@@ -402,7 +404,7 @@ async def broker_status(user=Depends(get_current_user)):
 
 
 # -------- Routes: Scan --------
-@app.post("/scan/start")
+@api_router.post("/scan/start")
 async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     session = _BROKER_SESSIONS.get(user["id"])
     if not session or not session.connected:
@@ -426,14 +428,14 @@ async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     return {"ok": True, "message": "Análise iniciada"}
 
 
-@app.post("/scan/stop")
+@api_router.post("/scan/stop")
 async def scan_stop(user=Depends(get_current_user)):
     await _stop_scan(user["id"])
     _state(user["id"])["message"] = "Scanner parado"
     return {"ok": True}
 
 
-@app.get("/scan/state")
+@api_router.get("/scan/state")
 async def scan_state(user=Depends(get_current_user)):
     state = _state(user["id"])
     return {
@@ -449,7 +451,7 @@ async def scan_state(user=Depends(get_current_user)):
     }
 
 
-@app.get("/signals/history")
+@api_router.get("/signals/history")
 async def signals_history(user=Depends(get_current_user), limit: int = 50):
     cursor = db.signals.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", DESCENDING).limit(limit)
     items = await cursor.to_list(length=limit)
@@ -466,7 +468,7 @@ async def signals_history(user=Depends(get_current_user), limit: int = 50):
     }}
 
 
-@app.get("/chart")
+@api_router.get("/chart")
 async def chart(asset: str, user=Depends(get_current_user)):
     state = _state(user["id"])
     candles = state["candles"].get(asset)
@@ -486,7 +488,7 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
 
 # -------- App setup --------
-app.include_router(api)
+app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
