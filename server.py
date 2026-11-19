@@ -304,7 +304,7 @@ async def root():
     return {"service": "Purple Signal Analyst", "status": "ok"}
 
 
-@api.post("/auth/register")
+@app.post("/auth/register")
 async def register(payload: RegisterIn, response: Response):
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
@@ -323,7 +323,7 @@ async def register(payload: RegisterIn, response: Response):
     return {"token": token, "user": {"id": user["id"], "email": email, "name": user["name"], "role": "user"}}
 
 
-@api.post("/auth/login")
+@app.post("/auth/login")
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
     user = await db.users.find_one({"email": email})
@@ -337,19 +337,19 @@ async def login(payload: LoginIn, response: Response):
     }
 
 
-@api.post("/auth/logout")
+@app.post("/auth/logout")
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
 
 
-@api.get("/auth/me")
+@app.get("/auth/me")
 async def me(user=Depends(get_current_user)):
     return {"user": user}
 
 
 # -------- Routes: Broker --------
-@api.post("/broker/connect")
+@app.post("/broker/connect")
 async def broker_connect(payload: BrokerConnectIn, user=Depends(get_current_user)):
     # desconecta sessão antiga
     old = _BROKER_SESSIONS.pop(user["id"], None)
@@ -379,7 +379,7 @@ def _session_out(session: BrokerSession) -> dict:
     }
 
 
-@api.post("/broker/disconnect")
+@app.post("/broker/disconnect")
 async def broker_disconnect(user=Depends(get_current_user)):
     await _stop_scan(user["id"])
     state = _state(user["id"])
@@ -393,7 +393,7 @@ async def broker_disconnect(user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@api.get("/broker/status")
+@app.get("/broker/status")
 async def broker_status(user=Depends(get_current_user)):
     session = _BROKER_SESSIONS.get(user["id"])
     if not session:
@@ -402,7 +402,7 @@ async def broker_status(user=Depends(get_current_user)):
 
 
 # -------- Routes: Scan --------
-@api.post("/scan/start")
+@app.post("/scan/start")
 async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     session = _BROKER_SESSIONS.get(user["id"])
     if not session or not session.connected:
@@ -426,14 +426,14 @@ async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     return {"ok": True, "message": "Análise iniciada"}
 
 
-@api.post("/scan/stop")
+@app.post("/scan/stop")
 async def scan_stop(user=Depends(get_current_user)):
     await _stop_scan(user["id"])
     _state(user["id"])["message"] = "Scanner parado"
     return {"ok": True}
 
 
-@api.get("/scan/state")
+@app.get("/scan/state")
 async def scan_state(user=Depends(get_current_user)):
     state = _state(user["id"])
     return {
@@ -449,7 +449,7 @@ async def scan_state(user=Depends(get_current_user)):
     }
 
 
-@api.get("/signals/history")
+@app.get("/signals/history")
 async def signals_history(user=Depends(get_current_user), limit: int = 50):
     cursor = db.signals.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", DESCENDING).limit(limit)
     items = await cursor.to_list(length=limit)
@@ -466,7 +466,7 @@ async def signals_history(user=Depends(get_current_user), limit: int = 50):
     }}
 
 
-@api.get("/chart")
+@app.get("/chart")
 async def chart(asset: str, user=Depends(get_current_user)):
     state = _state(user["id"])
     candles = state["candles"].get(asset)
