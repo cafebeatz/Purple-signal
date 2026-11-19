@@ -47,10 +47,8 @@ ACCESS_MIN = 60 * 24  # 24h
 app = FastAPI(title="Purple Signal Analyst")
 @app.get("/")
 def index():
-    from fastapi.responses import RedirectResponse
-
-    return RedirectResponse(url="/api/")
-api = APIRouter(prefix="/api")
+    from fastapi.responses import FileResponse
+    return FileResponse(ROOT_DIR / "index.html")
 
 
 # -------- Models --------
