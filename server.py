@@ -299,7 +299,7 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
 
 
 # -------- Routes: Auth --------
-@api.get("/")
+@app.get("/")
 async def root():
     return {"service": "Purple Signal Analyst", "status": "ok"}
 
