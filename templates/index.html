@@ -230,7 +230,7 @@
   $('scan-start').addEventListener('click',async()=>{
     try{
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:true,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
       })});
       scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
       await refreshScan();
