@@ -148,6 +148,8 @@
   const $=id=>document.getElementById(id);
   let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null;
   let pollTimers=[], candleCloseAt=0;
+  let configSaveTimer=null, configSaving=false, configDirty=false;
+  const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
   const safe=(v)=>String(v??'—');
   const dateFmt=(v)=>{
@@ -222,15 +224,49 @@
     catch(err){toast(err.message)}
   });
 
-  $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
+  function readConfig(){return {
+    timeframe:$('timeframe').value,
+    min_confidence:Number($('confidence').value),
+    amount:Number($('robot-amount').value),
+    target_gain:Number($('target-gain').value),
+    max_loss:Number($('max-loss').value)
+  }}
+  async function saveConfig(){
+    if(!authenticated)return;
+    const cfg=readConfig();
+    if(!Number.isFinite(cfg.amount)||cfg.amount<1||!Number.isFinite(cfg.target_gain)||cfg.target_gain<0||!Number.isFinite(cfg.max_loss)||cfg.max_loss<0){
+      $('scan-message').textContent='Confira os valores: entrada mínima 1; metas e limites não podem ser negativos.';
+      return false;
+    }
+    configSaving=true;
+    try{
+      await api('/scan/config',{method:'PUT',body:JSON.stringify(cfg)});
+      configDirty=false;
+      $('scan-message').textContent='Configurações salvas no servidor.';
+      return true;
+    }catch(err){
+      $('scan-message').textContent='Não foi possível salvar as configurações: '+err.message;
+      toast(err.message);
+      return false;
+    }finally{configSaving=false}
+  }
+  function scheduleConfigSave(){
+    configDirty=true;
+    clearTimeout(configSaveTimer);
+    configSaveTimer=setTimeout(saveConfig,450);
+  }
+  $('confidence').addEventListener('input',e=>{$('confidence-label').textContent=e.target.value+'%';scheduleConfigSave()});
   $('timeframe').addEventListener('change',async()=>{
     $('hero-timeframe').textContent=$('timeframe').value;
+    scheduleConfigSave();
     if(selectedAsset)await refreshChart();
   });
+  ['robot-amount','target-gain','max-loss'].forEach(id=>$(id).addEventListener('change',scheduleConfigSave));
   $('scan-start').addEventListener('click',async()=>{
     try{
+      if(await saveConfig()!==true)throw new Error('Não foi possível salvar as configurações. Confira a conexão e tente novamente.');
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:true,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
       })});
       scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
       await refreshScan();
@@ -287,7 +323,16 @@
       const s=await api('/scan/state');
       scanning=s.running===true;robotPaused=s.paused===true;robotActive=s.auto_trade===true;updateScanUI();updateRobotUI();
       candleCloseAt=Number(s.candle_close_ts||0);$('candle-countdown-note').textContent=candleCloseAt?'Fechamento estimado da vela '+(s.timeframe||$('timeframe').value)+' · horário do servidor':'Inicie o scanner para sincronizar a contagem.';updateCandleCountdown();
-      $('timeframe').value=s.timeframe||$('timeframe').value;$('confidence').value=s.min_confidence??$('confidence').value;$('confidence-label').textContent=$('confidence').value+'%';$('robot-amount').value=s.amount??$('robot-amount').value;$('target-gain').value=s.target_gain??0;$('max-loss').value=s.max_loss??0;$('daily-profit').textContent=fmt(s.daily_profit??0,2);$('risk-status').textContent=s.risk_halted?'BLOQUEADO':'Normal';$('risk-status').className='block text-base mt-1 '+(s.risk_halted?'text-rose-300':'text-emerald-300');$('robot-status-note').textContent=s.risk_reason||s.message||'Proteção diária ativa conforme configuração.';
+      const editingConfig=configDirty||configSaving||configFields.some(id=>$(id)===document.activeElement);
+      if(!editingConfig){
+        $('timeframe').value=s.timeframe||$('timeframe').value;
+        $('confidence').value=s.min_confidence??$('confidence').value;
+        $('confidence-label').textContent=$('confidence').value+'%';
+        $('robot-amount').value=s.amount??$('robot-amount').value;
+        $('target-gain').value=s.target_gain??0;
+        $('max-loss').value=s.max_loss??0;
+      }
+      $('daily-profit').textContent=fmt(s.daily_profit??0,2);$('risk-status').textContent=s.risk_halted?'BLOQUEADO':'Normal';$('risk-status').className='block text-base mt-1 '+(s.risk_halted?'text-rose-300':'text-emerald-300');$('robot-status-note').textContent=s.risk_reason||s.message||'Proteção diária ativa conforme configuração.';
       $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
       const ranking=normalizeRanking(s);
       renderRanking(ranking);
@@ -324,7 +369,7 @@
     }catch(err){$('history-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
   }
   function updateRobotUI(){
-    $('robot-start').disabled=!brokerConnected||robotActive||scanning&&false;
+    $('robot-start').disabled=!brokerConnected||robotActive;
     $('robot-pause').disabled=!scanning;$('robot-pause').textContent=robotPaused?'Retomar robô':'Pausar robô';
     $('robot-stop').disabled=!robotActive;$('robot-reset').disabled=!authenticated;
     $('robot-status-note').textContent=robotActive?(robotPaused?'Robô pausado; sinais pendentes continuam sendo acompanhados.':'Robô automático ativo.'):'Ordens automáticas desativadas; scanner analítico pode continuar ativo.';
