@@ -1453,6 +1453,27 @@ INDEXES: dict[str, list[IndexModel]] = {
 }
 
 
+async def seed_admin() -> None:
+    email = os.environ.get("ADMIN_EMAIL", "admin@sinais.com").lower()
+    password = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        return
+
+    await db.users.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "email": email,
+            "name": "Administrador",
+            "password_hash": hash_password(password),
+            "role": "admin",
+            "created_at": iso_now(),
+        }
+    )
+    logger.info("Admin seed criado: %s", email)
+
+
 async def clear_legacy_signals_once() -> None:
     """Compatibilidade com o startup antigo; preserva integralmente o histórico."""
     logger.info("Migração de histórico ignorada: sinais existentes foram preservados.")
