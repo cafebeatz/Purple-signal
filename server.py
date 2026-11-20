@@ -778,6 +778,8 @@ async def register(payload: RegisterIn, response: Response):
             "role": "user",
         },
     }
+
+
 @api.post("/auth/login")
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
@@ -1056,6 +1058,8 @@ async def robot_stop(user=Depends(get_current_user)):
         "running": state["running"],
         "message": state["message"],
     }
+
+
 @api.post("/robot/pause")
 async def robot_pause(user=Depends(get_current_user)):
     state = _state(user["id"])
@@ -1379,8 +1383,9 @@ INDEXES: dict[str, list[IndexModel]] = {
 
 async def clear_legacy_signals_once() -> None:
     """
-    Apaga os sinais preexistentes somente uma vez após instalar esta versão.
-    A marca de migração fica em app_meta; usuários não são afetados.
+    Mantém a rotina de inicialização compatível, mas sem apagar o histórico.
+    A limpeza do placar deve ocorrer somente pelo comando explícito de reset,
+    que encerra a sessão atual e preserva as sessões anteriores.
     """
     marker_id = "purple_signal_legacy_history_cleared_v1"
     marker = await db.app_meta.find_one({"_id": marker_id})
@@ -1388,21 +1393,22 @@ async def clear_legacy_signals_once() -> None:
     if marker and marker.get("completed") is True:
         return
 
-    deleted = await db.signals.delete_many({})
+    preserved_count = await db.signals.count_documents({})
     await db.app_meta.update_one(
         {"_id": marker_id},
         {
             "$set": {
                 "completed": True,
                 "completed_at": iso_now(),
-                "deleted_count": deleted.deleted_count,
+                "deleted_count": 0,
+                "preserved_count": preserved_count,
             }
         },
         upsert=True,
     )
-    logger.warning(
-        "Migração única concluída: %s sinais antigos removidos; usuários e outras coleções preservados.",
-        deleted.deleted_count,
+    logger.info(
+        "Inicialização concluída sem apagar histórico: %s sinais preservados.",
+        preserved_count,
     )
 
 
@@ -1450,4 +1456,3 @@ async def shutdown() -> None:
             disconnect_broker(session)
 
     client.close()
-
