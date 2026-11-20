@@ -10,9 +10,8 @@ Integração do painel Purple Signal:
 - Atualização explícita do saldo pela corretora.
 
 IMPORTANTE:
-Na primeira inicialização desta versão, a migração abaixo apaga UMA ÚNICA VEZ
-os documentos antigos da coleção "signals", conforme solicitado para começar
-o histórico do zero. Usuários e demais coleções não são apagados.
+A inicialização preserva o histórico existente de sinais. Nenhuma rotina de
+startup deve apagar documentos da coleção "signals".
 """
 
 from __future__ import annotations
@@ -595,7 +594,8 @@ async def _scan_loop(user_id: str) -> None:
             tf_seconds = TIMEFRAME_SECONDS[tf]
             now_ts = int(utc_now().timestamp())
 
-            results = []
+            ranking_results = []
+            signal_results = []
             closed_candles = {}
             brain_profile = await _load_quantum_brain_profile(user_id)
 
@@ -609,24 +609,43 @@ async def _scan_loop(user_id: str) -> None:
 
                 closed_candles[asset] = closed
                 analysis = analyze_candles(closed, brain_profile=brain_profile)
+                direction = str(analysis.get("direction", "NEUTRO")).upper()
+                is_ready = bool(analysis.get("ready"))
+                is_confirmed = is_ready and direction in {"CALL", "PUT"}
 
-                if analysis.get("ready") and analysis.get("direction") != "NEUTRO":
-                    results.append(
-                        {
-                            "asset": asset,
-                            "candle_ts": int(closed[-1]["ts"]),
-                            **analysis,
-                        }
-                    )
+                # O ranking também exibe ativos sem confirmação ou com poucos candles.
+                # Eles são informativos: somente signal_results pode gerar entrada.
+                item = {
+                    "asset": asset,
+                    "candle_ts": int(closed[-1]["ts"]),
+                    "signal_ready": is_confirmed,
+                    "status": (
+                        "CONFIRMADO" if is_confirmed
+                        else "AGUARDANDO_CONFIRMACAO" if is_ready
+                        else "AGUARDANDO_DADOS"
+                    ),
+                    **analysis,
+                }
+                ranking_results.append(item)
+                if is_confirmed:
+                    signal_results.append(item)
 
             state["candles"] = closed_candles
-            results.sort(
+            ranking_results.sort(
+                key=lambda item: (
+                    bool(item.get("signal_ready")),
+                    float(item.get("confidence") or 0),
+                    int(item.get("candle_ts") or 0),
+                ),
+                reverse=True,
+            )
+            signal_results.sort(
                 key=lambda item: float(item.get("confidence") or 0),
                 reverse=True,
             )
-            state["ranking"] = results[:10]
+            state["ranking"] = ranking_results[:10]
             state["last_scan_ts"] = iso_now()
-            state["best"] = results[0] if results else None
+            state["best"] = signal_results[0] if signal_results else None
 
             best = state["best"]
             if best and float(best.get("confidence") or 0) >= state["min_confidence"]:
@@ -654,8 +673,12 @@ async def _scan_loop(user_id: str) -> None:
                         f"{best['direction']} ({best['confidence']}%)"
                     )
 
-            elif not results:
-                state["message"] = "Analisando mercado..."
+            elif not signal_results:
+                state["message"] = (
+                    f"Scanner analisando {len(ranking_results)} ativo(s); "
+                    "aguardando confirmação técnica para gerar sinais."
+                    if ranking_results else "Aguardando candles da corretora..."
+                )
 
             await _settle_pending(user_id, session)
             await asyncio.sleep(3.0)
@@ -1307,12 +1330,42 @@ async def clear_current_session_history(user=Depends(get_current_user)):
 @api.get("/chart")
 async def chart(asset: str, user=Depends(get_current_user)):
     state = _state(user["id"])
-    candles = state["candles"].get(asset)
+    requested_asset = str(asset or "").strip()
+    candles = state["candles"].get(requested_asset)
+
+    # Tenta localizar a chave sem depender de maiúsculas/minúsculas.
+    if not candles:
+        matched_key = next(
+            (key for key in state["candles"] if str(key).casefold() == requested_asset.casefold()),
+            None,
+        )
+        if matched_key is not None:
+            candles = state["candles"].get(matched_key)
+
+    # Se o ativo não estiver no cache atual, consulta a corretora diretamente.
+    if not candles:
+        session = _BROKER_SESSIONS.get(user["id"])
+        if session and session.connected:
+            try:
+                fetched = await get_candles(
+                    session, requested_asset, state["timeframe"], count=120
+                )
+                tf_seconds = TIMEFRAME_SECONDS[state["timeframe"]]
+                now_ts = int(utc_now().timestamp())
+                candles = [
+                    c for c in (fetched or [])
+                    if int(c.get("ts", 0)) + tf_seconds <= now_ts
+                ]
+                if candles:
+                    state["candles"][requested_asset] = candles
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Falha ao recuperar candles do gráfico %s: %s", requested_asset, exc)
+                candles = []
 
     if not candles:
         raise HTTPException(
             status_code=404,
-            detail="Sem dados para este ativo ainda",
+            detail=f"Sem candles fechados disponíveis para {requested_asset} no timeframe {state['timeframe']}",
         )
 
     close = pd.Series([c["close"] for c in candles])
@@ -1401,53 +1454,8 @@ INDEXES: dict[str, list[IndexModel]] = {
 
 
 async def clear_legacy_signals_once() -> None:
-    """
-    Apaga os sinais preexistentes somente uma vez após instalar esta versão.
-    A marca de migração fica em app_meta; usuários não são afetados.
-    """
-    marker_id = "purple_signal_legacy_history_cleared_v1"
-    marker = await db.app_meta.find_one({"_id": marker_id})
-
-    if marker and marker.get("completed") is True:
-        return
-
-    deleted = await db.signals.delete_many({})
-    await db.app_meta.update_one(
-        {"_id": marker_id},
-        {
-            "$set": {
-                "completed": True,
-                "completed_at": iso_now(),
-                "deleted_count": deleted.deleted_count,
-            }
-        },
-        upsert=True,
-    )
-    logger.warning(
-        "Migração única concluída: %s sinais antigos removidos; usuários e outras coleções preservados.",
-        deleted.deleted_count,
-    )
-
-
-async def seed_admin() -> None:
-    email = os.environ.get("ADMIN_EMAIL", "admin@sinais.com").lower()
-    password = os.environ.get("ADMIN_PASSWORD", "admin123")
-
-    existing = await db.users.find_one({"email": email})
-    if existing:
-        return
-
-    await db.users.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "email": email,
-            "name": "Administrador",
-            "password_hash": hash_password(password),
-            "role": "admin",
-            "created_at": iso_now(),
-        }
-    )
-    logger.info("Admin seed criado: %s", email)
+    """Compatibilidade com o startup antigo; preserva integralmente o histórico."""
+    logger.info("Migração de histórico ignorada: sinais existentes foram preservados.")
 
 
 @app.on_event("startup")
@@ -1457,7 +1465,7 @@ async def startup() -> None:
             with suppress(Exception):
                 await db[collection].create_indexes([model])
 
-    # Limpeza autorizada do histórico anterior: uma única vez.
+    # Mantém compatibilidade com a inicialização sem apagar o histórico.
     await clear_legacy_signals_once()
     await seed_admin()
 
