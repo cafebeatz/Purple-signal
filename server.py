@@ -21,7 +21,7 @@ import bcrypt
 import pandas as pd
 import jwt
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
@@ -506,8 +506,23 @@ async def chart(asset: str, user=Depends(get_current_user)):
 app.include_router(api)
 
 # Serve a interface web na raiz sem interceptar as rotas /api/.
-FRONTEND_DIR = ROOT_DIR / "static"
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+@app.get("/", include_in_schema=False)
+async def serve_frontend():
+    # Mantém a estrutura original: procura o HTML na raiz do projeto.
+    # Aceita o nome solicitado pelo usuário e também o nome original do arquivo.
+    candidates = (
+        ROOT_DIR / "template" / "index.html",
+        ROOT_DIR / "templates" / "index.html",
+        ROOT_DIR / "index.html",
+        ROOT_DIR / "Purple_Signal_robo_interface.html",
+    )
+    for html_file in candidates:
+        if html_file.is_file():
+            return FileResponse(html_file)
+    raise HTTPException(
+        status_code=404,
+        detail="Interface HTML não encontrada na raiz do projeto.",
+    )
 
 app.add_middleware(
     CORSMiddleware,
