@@ -21,6 +21,7 @@ import bcrypt
 import pandas as pd
 import jwt
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
@@ -503,6 +504,10 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
 # -------- App setup --------
 app.include_router(api)
+
+# Serve a interface web na raiz sem interceptar as rotas /api/.
+FRONTEND_DIR = ROOT_DIR / "static"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 app.add_middleware(
     CORSMiddleware,
