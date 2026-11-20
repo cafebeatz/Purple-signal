@@ -336,6 +336,7 @@ def _signal_doc(
         "simulated": session.simulated,
         "account_type": session.account_type,
         "indicators": best.get("indicators", {}),
+        "brain_snapshot": best.get("brain_snapshot"),
         "ts": now.isoformat(),
         "expires_at": (now + timedelta(seconds=TIMEFRAME_SECONDS[tf])).isoformat(),
         "result": "PENDENTE",
@@ -343,6 +344,39 @@ def _signal_doc(
         "profit": None,
         "settled_at": None,
     }
+
+
+async def _load_quantum_brain_profile(user_id: str) -> dict:
+    """Resume resultados encerrados deste usuário, sem alterar o histórico de sinais."""
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": "$pattern_key",
+            "wins": {"$sum": {"$cond": [{"$eq": ["$result", "WIN"]}, 1, 0]}},
+            "losses": {"$sum": {"$cond": [{"$eq": ["$result", "LOSS"]}, 1, 0]}},
+            "ties": {"$sum": {"$cond": [{"$eq": ["$result", "EMPATE"]}, 1, 0]}},
+        }},
+    ]
+    rows = await db.strategy_brain_events.aggregate(pipeline).to_list(length=5000)
+    return {str(row["_id"]): {"wins": int(row.get("wins", 0)), "losses": int(row.get("losses", 0)), "ties": int(row.get("ties", 0))} for row in rows if row.get("_id")}
+
+
+async def _record_quantum_brain_outcome(sig: dict, result: str) -> None:
+    """Um evento único por sinal; duplicatas não contam duas vezes."""
+    snapshot = sig.get("brain_snapshot") or {}
+    pattern_key = snapshot.get("pattern_key")
+    if not pattern_key or result not in {"WIN", "LOSS", "EMPATE"}:
+        return
+    from pymongo.errors import DuplicateKeyError
+    try:
+        await db.strategy_brain_events.insert_one({
+            "signal_id": sig["id"], "user_id": sig["user_id"],
+            "pattern_key": pattern_key, "snapshot": snapshot, "result": result,
+            "asset": sig.get("asset"), "timeframe": sig.get("timeframe"),
+            "direction": sig.get("direction"), "settled_at": iso_now(),
+        })
+    except DuplicateKeyError:
+        return
 
 
 async def _auto_trade(
@@ -421,7 +455,7 @@ def _price_at_expiry(sig: dict, candles: list[dict]) -> float:
 
 
 async def _settle_pending(user_id: str, session: BrokerSession) -> None:
-    """Liquida sinais vencidos; ordens reais usam o resultado oficial da corretora."""
+    """Liquida sinais vencidos; ordens reais usam o resultado informado pela corretora."""
     now = utc_now()
     pending = await db.signals.find(
         {
@@ -438,36 +472,17 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
         trade = sig.get("trade") or {}
         update: dict = {}
 
-        # OPERAÇÃO REAL: classificação e P&L vêm exclusivamente da corretora.
         if trade.get("order_id") and not sig.get("simulated"):
             result_data = await check_trade(session, trade["order_id"])
-            if not result_data or not result_data.get("done"):
+            if not result_data.get("done"):
                 continue
 
-            raw_win = str(result_data.get("win", "")).strip().lower()
-            result = {
-                "win": "WIN",
-                "loose": "LOSS",
-                "loss": "LOSS",
-                "equal": "EMPATE",
-            }.get(raw_win)
-            if result is None:
-                logger.warning(
-                    "Resultado da corretora não reconhecido para a ordem %s: %r",
-                    trade.get("order_id"),
-                    result_data.get("win"),
-                )
-                continue
-
-            try:
-                profit = round(float(result_data["profit"]), 2)
-            except (KeyError, TypeError, ValueError):
-                logger.warning(
-                    "Lucro/prejuízo ausente ou inválido para a ordem %s",
-                    trade.get("order_id"),
-                )
-                continue
-
+            raw_win = str(result_data.get("win", "")).lower()
+            result = {"win": "WIN", "loose": "LOSS", "loss": "LOSS"}.get(
+                raw_win,
+                "EMPATE",
+            )
+            profit = float(result_data.get("profit") or 0)
             update = {
                 "result": result,
                 "trade.status": "FECHADA",
@@ -475,16 +490,9 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
                 "profit": profit,
                 "settled_at": now.isoformat(),
             }
-
-            saved = await db.signals.update_one(
-                {"id": sig["id"], "user_id": user_id, "result": "PENDENTE"},
-                {"$set": update},
-            )
-            if saved.modified_count:
-                balance_changed = True
+            balance_changed = True
 
         else:
-            # Mantém a lógica original para sinais sem ordem real e simulações.
             candles = (
                 _state(user_id)["candles"].get(sig["asset"])
                 or await get_candles(
@@ -528,15 +536,21 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
                     }
                 )
 
-            await db.signals.update_one(
-                {"id": sig["id"], "user_id": user_id, "result": "PENDENTE"},
-                {"$set": update},
-            )
+        saved = await db.signals.update_one(
+            {"id": sig["id"], "user_id": user_id, "result": "PENDENTE"},
+            {"$set": update},
+        )
+        if saved.modified_count == 1:
+            try:
+                await _record_quantum_brain_outcome(sig, result)
+            except Exception:  # noqa: BLE001
+                logger.exception("Falha ao registrar aprendizagem do sinal %s", sig.get("id"))
 
     if balance_changed:
         await refresh_balance(session)
 
     await _refresh_risk_state(user_id)
+
 
 # ---------------------------------------------------------------------------
 # Loop do scanner
@@ -583,6 +597,7 @@ async def _scan_loop(user_id: str) -> None:
 
             results = []
             closed_candles = {}
+            brain_profile = await _load_quantum_brain_profile(user_id)
 
             for asset, candles in all_candles.items():
                 closed = [
@@ -593,7 +608,7 @@ async def _scan_loop(user_id: str) -> None:
                     continue
 
                 closed_candles[asset] = closed
-                analysis = analyze_candles(closed)
+                analysis = analyze_candles(closed, brain_profile=brain_profile)
 
                 if analysis.get("ready") and analysis.get("direction") != "NEUTRO":
                     results.append(
@@ -1378,14 +1393,17 @@ INDEXES: dict[str, list[IndexModel]] = {
             name="archive_filters",
         ),
     ],
+    "strategy_brain_events": [
+        IndexModel([("signal_id", ASCENDING)], unique=True, name="brain_signal_unique"),
+        IndexModel([("user_id", ASCENDING), ("pattern_key", ASCENDING)], name="brain_user_pattern"),
+    ],
 }
 
 
 async def clear_legacy_signals_once() -> None:
     """
-    Mantém a rotina de inicialização compatível, mas sem apagar o histórico.
-    A limpeza do placar deve ocorrer somente pelo comando explícito de reset,
-    que encerra a sessão atual e preserva as sessões anteriores.
+    Apaga os sinais preexistentes somente uma vez após instalar esta versão.
+    A marca de migração fica em app_meta; usuários não são afetados.
     """
     marker_id = "purple_signal_legacy_history_cleared_v1"
     marker = await db.app_meta.find_one({"_id": marker_id})
@@ -1393,22 +1411,21 @@ async def clear_legacy_signals_once() -> None:
     if marker and marker.get("completed") is True:
         return
 
-    preserved_count = await db.signals.count_documents({})
+    deleted = await db.signals.delete_many({})
     await db.app_meta.update_one(
         {"_id": marker_id},
         {
             "$set": {
                 "completed": True,
                 "completed_at": iso_now(),
-                "deleted_count": 0,
-                "preserved_count": preserved_count,
+                "deleted_count": deleted.deleted_count,
             }
         },
         upsert=True,
     )
-    logger.info(
-        "Inicialização concluída sem apagar histórico: %s sinais preservados.",
-        preserved_count,
+    logger.warning(
+        "Migração única concluída: %s sinais antigos removidos; usuários e outras coleções preservados.",
+        deleted.deleted_count,
     )
 
 
