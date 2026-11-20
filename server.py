@@ -1,6 +1,6 @@
 """
-Backend FastAPI - Gerador de Sinais IQ Option / PolariumBroker.
-Estratégia: MA9 x MA21 (direção) + MACD cruzamento (gatilho) + RSI + Agulhada do Didi (confirmação).
+Backend FastAPI - Purple Signal.
+Estratégia: fluxo estimado como direção principal + tendência + KDJ + confirmações técnicas; estrutura de topos/fundos e suporte/resistência usada internamente.
 """
 from __future__ import annotations
 
@@ -45,15 +45,8 @@ JWT_ALG = "HS256"
 ACCESS_MIN = 60 * 24  # 24h
 
 app = FastAPI(title="Purple Signal Analyst")
+api = APIRouter(prefix="/api")
 
-# Rota para servir o frontend
-@app.get("/")
-def index():
-    from fastapi.responses import FileResponse
-    return FileResponse(ROOT_DIR / "index.html")
-
-# Router para as rotas da API com prefixo /api
-api_router = APIRouter(prefix="/api")
 
 # -------- Models --------
 class RegisterIn(BaseModel):
@@ -155,6 +148,7 @@ def _state(user_id: str) -> dict:
             "best": None,
             "ranking": [],
             "candles": {},
+            "last_signal_candle": {},
             "message": "Aguardando início do scanner",
         },
     )
@@ -170,6 +164,7 @@ def _signal_doc(user_id: str, best: dict, tf: str, session: BrokerSession) -> di
         "confidence": best["confidence"],
         "price": best["price"],
         "timeframe": tf,
+        "candle_ts": best.get("candle_ts"),
         "broker": session.broker,
         "simulated": session.simulated,
         "account_type": session.account_type,
@@ -189,7 +184,7 @@ async def _auto_trade(state: dict, session: BrokerSession, doc: dict) -> None:
         state["message"] = f"Entrada automática: {doc['asset']} {doc['direction']} {session.currency} {amount:.2f}"
     except ConnectionError:
         raise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         doc["trade"] = {"order_id": None, "amount": amount, "status": "ERRO", "error": str(e)[:200], "profit": None}
         state["message"] = f"Falha na entrada automática: {str(e)[:120]}"
 
@@ -207,12 +202,22 @@ async def _scan_loop(user_id: str) -> None:
         try:
             tf = state["timeframe"]
             all_candles = await get_candles_many(session, session.assets, tf, count=120)
-            state["candles"] = all_candles
+            tf_seconds = TIMEFRAME_SECONDS[tf]
+            now_ts = int(datetime.now(timezone.utc).timestamp())
             results = []
+            closed_candles = {}
             for asset, candles in all_candles.items():
-                analysis = analyze_candles(candles)
+                # A vela só entra na estratégia depois do seu intervalo completo.
+                # O timestamp do provedor é tratado como horário de abertura da vela.
+                closed = [c for c in candles if int(c.get("ts", 0)) + tf_seconds <= now_ts]
+                if not closed:
+                    continue
+                closed_candles[asset] = closed
+                analysis = analyze_candles(closed)
                 if analysis.get("ready") and analysis["direction"] != "NEUTRO":
-                    results.append({"asset": asset, **analysis})
+                    results.append({"asset": asset, "candle_ts": int(closed[-1]["ts"]), **analysis})
+            # Mantém candles fechadas para o gráfico e para a liquidação por preço.
+            state["candles"] = closed_candles
 
             results.sort(key=lambda r: r["confidence"], reverse=True)
             state["ranking"] = results[:10]
@@ -221,13 +226,20 @@ async def _scan_loop(user_id: str) -> None:
             state["best"] = best
 
             if best and best["confidence"] >= state["min_confidence"]:
+                # Um único sinal por ativo e por vela fechada, mesmo que o loop
+                # consulte novamente os mesmos candles a cada poucos segundos.
+                last_candle = state["last_signal_candle"].get(best["asset"])
                 same = await db.signals.find_one({
                     "user_id": user_id, "asset": best["asset"],
-                    "direction": best["direction"], "result": "PENDENTE",
+                    "candle_ts": best["candle_ts"],
                 })
-                if not same:
+                if last_candle != best["candle_ts"] and not same:
                     doc = _signal_doc(user_id, best, tf, session)
-                    state["message"] = f"Novo sinal: {best['asset']} {best['direction']} ({best['confidence']}%)"
+                    state["last_signal_candle"][best["asset"]] = best["candle_ts"]
+                    state["message"] = (
+                        f"Vela M1 fechada — sinal: {best['asset']} "
+                        f"{best['direction']} ({best['confidence']}%)"
+                    )
                     if state["auto_trade"]:
                         await _auto_trade(state, session, doc)
                     await db.signals.insert_one(doc)
@@ -244,7 +256,7 @@ async def _scan_loop(user_id: str) -> None:
             session.connected = False
             state["message"] = "Conexão com a corretora perdida. Reconecte a conta."
             break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.exception("Erro no scan loop: %s", e)
             await asyncio.sleep(2.0)
 
@@ -271,6 +283,7 @@ def _price_at_expiry(sig: dict, candles: list[dict]) -> float:
 
 
 async def _settle_pending(user_id: str, session: BrokerSession) -> None:
+    """WIN/LOSS: ordem real pelo resultado da corretora; senão pelo preço na expiração."""
     now = datetime.now(timezone.utc)
     pending = await db.signals.find(
         {"user_id": user_id, "result": "PENDENTE", "expires_at": {"$lte": now.isoformat()}}, {"_id": 0}
@@ -302,12 +315,12 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
 
 
 # -------- Routes: Auth --------
-@api_router.get("/")
+@api.get("/")
 async def root():
     return {"service": "Purple Signal Analyst", "status": "ok"}
 
 
-@api_router.post("/auth/register")
+@api.post("/auth/register")
 async def register(payload: RegisterIn, response: Response):
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
@@ -326,7 +339,7 @@ async def register(payload: RegisterIn, response: Response):
     return {"token": token, "user": {"id": user["id"], "email": email, "name": user["name"], "role": "user"}}
 
 
-@api_router.post("/auth/login")
+@api.post("/auth/login")
 async def login(payload: LoginIn, response: Response):
     email = payload.email.lower()
     user = await db.users.find_one({"email": email})
@@ -340,20 +353,21 @@ async def login(payload: LoginIn, response: Response):
     }
 
 
-@api_router.post("/auth/logout")
+@api.post("/auth/logout")
 async def logout(response: Response):
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
 
 
-@api_router.get("/auth/me")
+@api.get("/auth/me")
 async def me(user=Depends(get_current_user)):
     return {"user": user}
 
 
 # -------- Routes: Broker --------
-@api_router.post("/broker/connect")
+@api.post("/broker/connect")
 async def broker_connect(payload: BrokerConnectIn, user=Depends(get_current_user)):
+    # desconecta sessão antiga
     old = _BROKER_SESSIONS.pop(user["id"], None)
     if old:
         await _stop_scan(user["id"])
@@ -381,7 +395,7 @@ def _session_out(session: BrokerSession) -> dict:
     }
 
 
-@api_router.post("/broker/disconnect")
+@api.post("/broker/disconnect")
 async def broker_disconnect(user=Depends(get_current_user)):
     await _stop_scan(user["id"])
     state = _state(user["id"])
@@ -395,7 +409,7 @@ async def broker_disconnect(user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@api_router.get("/broker/status")
+@api.get("/broker/status")
 async def broker_status(user=Depends(get_current_user)):
     session = _BROKER_SESSIONS.get(user["id"])
     if not session:
@@ -404,7 +418,7 @@ async def broker_status(user=Depends(get_current_user)):
 
 
 # -------- Routes: Scan --------
-@api_router.post("/scan/start")
+@api.post("/scan/start")
 async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     session = _BROKER_SESSIONS.get(user["id"])
     if not session or not session.connected:
@@ -428,14 +442,14 @@ async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     return {"ok": True, "message": "Análise iniciada"}
 
 
-@api_router.post("/scan/stop")
+@api.post("/scan/stop")
 async def scan_stop(user=Depends(get_current_user)):
     await _stop_scan(user["id"])
     _state(user["id"])["message"] = "Scanner parado"
     return {"ok": True}
 
 
-@api_router.get("/scan/state")
+@api.get("/scan/state")
 async def scan_state(user=Depends(get_current_user)):
     state = _state(user["id"])
     return {
@@ -451,7 +465,7 @@ async def scan_state(user=Depends(get_current_user)):
     }
 
 
-@api_router.get("/signals/history")
+@api.get("/signals/history")
 async def signals_history(user=Depends(get_current_user), limit: int = 50):
     cursor = db.signals.find({"user_id": user["id"]}, {"_id": 0}).sort("ts", DESCENDING).limit(limit)
     items = await cursor.to_list(length=limit)
@@ -468,7 +482,7 @@ async def signals_history(user=Depends(get_current_user), limit: int = 50):
     }}
 
 
-@api_router.get("/chart")
+@api.get("/chart")
 async def chart(asset: str, user=Depends(get_current_user)):
     state = _state(user["id"])
     candles = state["candles"].get(asset)
@@ -488,7 +502,7 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
 
 # -------- App setup --------
-app.include_router(api_router)
+app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
