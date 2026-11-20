@@ -286,15 +286,20 @@
   }
   function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
   function renderRanking(items){
-    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
-    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
+    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos analisados';
+    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Aguardando candles da corretora para iniciar a análise dos ativos.</div>';return}
     $('scanner-list').innerHTML=items.map((x,i)=>{
       const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
       const conf=x.confidence??x.confidence_pct??x.score;
       const price=x.price??x.close;
+      const confirmed=x.signal_ready===true||x.status==='CONFIRMADO';
+      const status=x.status==='AGUARDANDO_DADOS'?'AGUARDANDO DADOS':confirmed?'CONFIRMADO':'AGUARDANDO CONFIRMAÇÃO';
+      const statusClass=confirmed?'text-emerald-300':'text-amber-300';
+      const directionLabel=dir&&dir!=='NEUTRO'?dir:'NEUTRO';
       return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':'text-emerald-300'}">${escapeHtml(dir||'—')}</span></div>
-        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
+        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':confirmed?'text-emerald-300':'text-amber-300'}">${escapeHtml(directionLabel)}</span></div>
+        <div class="flex justify-between mt-2 text-xs"><span class="${statusClass}">${status}</span><span class="muted">Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span></div>
+        <div class="flex justify-end mt-1 text-xs muted"><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
       </button>`;
     }).join('');
     $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
@@ -345,12 +350,12 @@
       const candles=Array.isArray(data.candles)?data.candles:[];
       const c=candles[candles.length-1];
       $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
-      if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
+      if(!c){$('chart-summary').textContent='A corretora ainda não disponibilizou candles fechados para este ativo/timeframe.';return}
       $('hero-price').textContent=fmt(c.close,5);
       $('hero-candle-time').textContent=dateFmt(c.ts);
       $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
       $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. MA9: ${last(data.ma9)} · MA21: ${last(data.ma21)}.`;
-    }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
+    }catch(err){$('chart-summary').textContent='Não foi possível carregar candles de '+selectedAsset+': '+err.message}
   }
   function last(arr){if(!Array.isArray(arr)||!arr.length)return '—';const v=arr[arr.length-1];return fmt(typeof v==='object'?v.value:v,5)}
   function tradeExecutionLabel(item){
