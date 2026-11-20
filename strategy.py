@@ -144,7 +144,84 @@ def _directional_core(df: pd.DataFrame):
     return direction, trend, flow_side, flow_value, structure, structure_detail, e9, e21
 
 
-def analyze_candles(candles: Iterable[dict]) -> dict:
+def _brain_band(value: float, bounds: tuple[float, ...], labels: tuple[str, ...]) -> str:
+    for bound, label in zip(bounds, labels):
+        if value < bound:
+            return label
+    return labels[-1]
+
+
+def quantum_brain_snapshot(analysis: dict) -> dict:
+    """Resumo determinístico das condições de entrada para aprendizagem posterior."""
+    indicators = analysis.get("indicators") or {}
+    core = analysis.get("directional_core") or {}
+    confirmations = analysis.get("confirmations") or {}
+    direction = str(analysis.get("direction", "NEUTRO")).upper()
+    rsi_value = _num(indicators.get("rsi"), 50)
+    adx_value = _num(indicators.get("adx"), 0)
+    macd_value = _num(indicators.get("macd"))
+    macd_signal_value = _num(indicators.get("macd_signal"))
+    di_plus = _num(indicators.get("di_plus"))
+    di_minus = _num(indicators.get("di_minus"))
+    k_value = _num(indicators.get("k"))
+    d_value = _num(indicators.get("d"))
+    flow_value = _num(core.get("flow_value"))
+    snapshot = {
+        "direction": direction,
+        "trend": str(core.get("trend", "NEUTRO")),
+        "flow": str(core.get("flow", "NEUTRO")),
+        "structure": str(core.get("structure", "NEUTRO")),
+        "confirmations": int(_num(confirmations.get("count"))),
+        "rsi_band": _brain_band(rsi_value, (30, 45, 55, 70), ("<30", "30-45", "45-55", "55-70", ">=70")),
+        "adx_band": _brain_band(adx_value, (15, 25, 40), ("<15", "15-25", "25-40", ">=40")),
+        "flow_band": "BUY_FORTE" if flow_value >= 0.35 else "BUY" if flow_value >= 0.08 else "SELL_FORTE" if flow_value <= -0.35 else "SELL" if flow_value <= -0.08 else "NEUTRO",
+        "macd_aligned": bool(macd_value > macd_signal_value) if direction == "CALL" else bool(macd_value < macd_signal_value) if direction == "PUT" else False,
+        "di_aligned": bool(di_plus > di_minus) if direction == "CALL" else bool(di_minus > di_plus) if direction == "PUT" else False,
+        "kdj_aligned": bool(k_value > d_value) if direction == "CALL" else bool(k_value < d_value) if direction == "PUT" else False,
+    }
+    parts = [
+        snapshot["direction"], snapshot["trend"], snapshot["flow"], snapshot["structure"],
+        str(snapshot["confirmations"]), snapshot["rsi_band"], snapshot["adx_band"],
+        snapshot["flow_band"], str(int(snapshot["macd_aligned"])),
+        str(int(snapshot["di_aligned"])), str(int(snapshot["kdj_aligned"])),
+    ]
+    snapshot["pattern_key"] = "|".join(parts)
+    return snapshot
+
+
+def _apply_quantum_brain(analysis: dict, brain_profile: dict | None) -> dict:
+    """Ajuste pequeno e limitado de confiança; nunca troca a direção do núcleo."""
+    snapshot = quantum_brain_snapshot(analysis)
+    analysis["brain_snapshot"] = snapshot
+    stats = (brain_profile or {}).get(snapshot["pattern_key"])
+    if not stats:
+        analysis["quantum_brain"] = {"active": False, "reason": "Padrão ainda sem histórico suficiente", "adjustment": 0}
+        return analysis
+
+    wins = int(_num(stats.get("wins")))
+    losses = int(_num(stats.get("losses")))
+    ties = int(_num(stats.get("ties")))
+    total = wins + losses + ties
+    # Exige amostra mínima e usa prior neutro para reduzir oscilações com poucos casos.
+    if total < 8:
+        analysis["quantum_brain"] = {"active": False, "samples": total, "reason": "Amostra mínima de 8 operações ainda não atingida", "adjustment": 0}
+        return analysis
+
+    effective_wins = wins + ties * 0.5
+    effective_losses = losses + ties * 0.5
+    posterior = (effective_wins + 2.0) / (effective_wins + effective_losses + 4.0)
+    adjustment = max(-5, min(5, int(round((posterior - 0.5) * 20))))
+    if analysis.get("direction") != "NEUTRO":
+        analysis["confidence"] = max(50, min(97, int(analysis.get("confidence", 0)) + adjustment))
+    analysis["quantum_brain"] = {
+        "active": True, "samples": total, "wins": wins, "losses": losses,
+        "ties": ties, "estimated_win_rate": round(posterior * 100, 2),
+        "adjustment": adjustment,
+    }
+    return analysis
+
+
+def analyze_candles(candles: Iterable[dict], brain_profile: dict | None = None) -> dict:
     df = _normalize(candles)
     if len(df) < 50:
         return {"ready": False, "direction": "NEUTRO", "confidence": 0,
@@ -219,7 +296,7 @@ def analyze_candles(candles: Iterable[dict]) -> dict:
     structure_bonus = 1 if structure != "NEUTRO" else 0
     confidence = max(50, min(97, int(58 + flow_strength * 0.18 + confirmations * 5 + structure_bonus * 4 + min(adx, 35) * 0.15))) if final_direction != "NEUTRO" else 0
 
-    return {
+    result = {
         "ready": True,
         "direction": final_direction,
         "confidence": confidence,
@@ -244,3 +321,4 @@ def analyze_candles(candles: Iterable[dict]) -> dict:
         "flow_source": "ESTIMADO_OHLCV",
         "confidence_type": "SCORE_DE_CONFLUENCIA_NAO_PROBABILIDADE",
     }
+    return _apply_quantum_brain(result, brain_profile)
