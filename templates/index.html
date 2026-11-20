@@ -101,7 +101,7 @@
         </div>
         <div class="panel p-4">
           <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Histórico real de sinais</h2><span id="history-stats" class="text-xs muted">Sem operações registradas</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="6" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Execução / ordem</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="7" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
         </div>
         <div class="panel p-4">
           <div class="flex flex-wrap justify-between items-center gap-2 mb-3"><h2 class="font-bold">Arquivo de sessões anteriores</h2><button id="archive-refresh" class="btn btn-secondary text-xs" type="button">Atualizar arquivo</button></div>
@@ -115,7 +115,7 @@
               <input id="archive-to" class="field text-xs" type="date" aria-label="Data final">
             </div>
             <button id="archive-search" class="btn btn-secondary text-xs mt-2" type="button">Pesquisar arquivo</button>
-            <div class="table-wrap mt-3"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Lucro</th></tr></thead><tbody id="archive-trades-body"><tr><td colspan="6" class="skeleton">Use os filtros para pesquisar operações anteriores.</td></tr></tbody></table></div>
+            <div class="table-wrap mt-3"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Execução / ordem</th><th>Lucro</th></tr></thead><tbody id="archive-trades-body"><tr><td colspan="7" class="skeleton">Use os filtros para pesquisar operações anteriores.</td></tr></tbody></table></div>
           </div>
         </div>
         <div class="panel p-4">
@@ -236,18 +236,16 @@
     const cfg=readConfig();
     if(!Number.isFinite(cfg.amount)||cfg.amount<1||!Number.isFinite(cfg.target_gain)||cfg.target_gain<0||!Number.isFinite(cfg.max_loss)||cfg.max_loss<0){
       $('scan-message').textContent='Confira os valores: entrada mínima 1; metas e limites não podem ser negativos.';
-      return false;
+      return;
     }
     configSaving=true;
     try{
       await api('/scan/config',{method:'PUT',body:JSON.stringify(cfg)});
       configDirty=false;
       $('scan-message').textContent='Configurações salvas no servidor.';
-      return true;
     }catch(err){
       $('scan-message').textContent='Não foi possível salvar as configurações: '+err.message;
       toast(err.message);
-      return false;
     }finally{configSaving=false}
   }
   function scheduleConfigSave(){
@@ -264,7 +262,7 @@
   ['robot-amount','target-gain','max-loss'].forEach(id=>$(id).addEventListener('change',scheduleConfigSave));
   $('scan-start').addEventListener('click',async()=>{
     try{
-      if(await saveConfig()!==true)throw new Error('Não foi possível salvar as configurações. Confira a conexão e tente novamente.');
+      await saveConfig();
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
         timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
       })});
@@ -355,18 +353,37 @@
     }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
   }
   function last(arr){if(!Array.isArray(arr)||!arr.length)return '—';const v=arr[arr.length-1];return fmt(typeof v==='object'?v.value:v,5)}
+  function tradeExecutionLabel(item){
+    const trade=item?.trade||{};
+    const status=String(trade.status||'').toUpperCase();
+    const orderId=trade.order_id;
+    if(orderId!==undefined&&orderId!==null&&String(orderId).trim()!==''){
+      return `${status||'ABERTA'} · #${String(orderId)}`;
+    }
+    if(status==='ERRO')return `ERRO · ${String(trade.error||'falha ao enviar')}`;
+    if(status==='ABERTA')return 'ABERTA · ID não retornado';
+    if(status==='FECHADA')return 'FECHADA · ID não retornado';
+    return 'SEM ORDEM';
+  }
+  function resultClass(value){
+    const result=String(value||'PENDENTE').toUpperCase();
+    if(result==='WIN'||result==='WON'||result==='GAIN')return 'text-emerald-300';
+    if(result==='LOSS'||result==='LOST')return 'text-rose-300';
+    return 'text-amber-200';
+  }
   async function refreshHistory(){
     try{
       const data=await api('/signals/history?limit=50');
       const items=Array.isArray(data.items)?data.items:[];
       $('history-stats').textContent=data.stats?`${data.stats.wins??0} vitórias · ${data.stats.losses??0} perdas · ${fmt(data.stats.winrate??0,1)}% acerto · lucro ${fmt(data.stats.profit??0,2)}`:'';
-      if(!items.length){$('history-body').innerHTML='<tr><td colspan="6" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
+      if(!items.length){$('history-body').innerHTML='<tr><td colspan="7" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
       $('history-body').innerHTML=items.map(x=>{
         const result=String(x.result??x.status??'PENDENTE').toUpperCase();
-        const cls=result.includes('WIN')||result.includes('WON')||result.includes('GAIN')?'text-emerald-300':result.includes('LOSS')||result.includes('LOST')?'text-rose-300':'text-amber-200';
-        return `<tr><td>${escapeHtml(dateFmt(x.ts??x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${cls}">${escapeHtml(result)}</td><td>${(x.profit??x.trade?.profit)==null?'—':escapeHtml(fmt(x.profit??x.trade?.profit,2))}</td></tr>`;
+        const execution=tradeExecutionLabel(x);
+        const profit=x.profit??x.trade?.profit;
+        return `<tr><td>${escapeHtml(dateFmt(x.ts??x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(result)}">${escapeHtml(result)}</td><td>${escapeHtml(execution)}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`;
       }).join('');
-    }catch(err){$('history-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
+    }catch(err){$('history-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
   }
   function updateRobotUI(){
     $('robot-start').disabled=!brokerConnected||robotActive;
@@ -384,7 +401,7 @@
     const params=new URLSearchParams({limit:'500'});
     const asset=$('archive-asset').value.trim(),result=$('archive-result').value,from=$('archive-from').value,to=$('archive-to').value;
     if(asset)params.set('asset',asset);if(result)params.set('result',result);if(from)params.set('date_from',from);if(to)params.set('date_to',to);
-    try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const cls=res==='WIN'?'text-emerald-300':res==='LOSS'?'text-rose-300':'text-amber-200';const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction||'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${cls}">${escapeHtml(res)}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="6" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
+    try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction||'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(res)}">${escapeHtml(res)}</td><td>${escapeHtml(tradeExecutionLabel(x))}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
   }
   $('archive-search').addEventListener('click',searchArchive);
   async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory(),refreshArchive()])}
