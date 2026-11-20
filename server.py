@@ -123,7 +123,7 @@ class BrokerConnectIn(BaseModel):
 class ScanStartIn(BaseModel):
     timeframe: str = Field(default="M1", pattern="^(M1|M5|M15)$")
     min_confidence: int = Field(default=70, ge=50, le=99)
-    auto_trade: bool = False
+    auto_trade: bool = True
     amount: float = Field(default=2.0, ge=1, le=10000)
     target_gain: float = Field(default=0.0, ge=0, le=100000000)
     max_loss: float = Field(default=0.0, ge=0, le=100000000)
@@ -134,6 +134,14 @@ class RobotConfigIn(BaseModel):
     amount: float = Field(default=2.0, ge=1, le=10000)
     target_gain: float = Field(default=0.0, ge=0, le=100000000)
     max_loss: float = Field(default=0.0, ge=0, le=100000000)
+
+
+class ScannerConfigUpdateIn(BaseModel):
+    timeframe: Optional[str] = Field(default=None, pattern="^(M1|M5|M15)$")
+    min_confidence: Optional[int] = Field(default=None, ge=50, le=99)
+    amount: Optional[float] = Field(default=None, ge=1, le=10000)
+    target_gain: Optional[float] = Field(default=None, ge=0, le=100000000)
+    max_loss: Optional[float] = Field(default=None, ge=0, le=100000000)
 
 
 class SessionStartIn(BaseModel):
@@ -236,9 +244,36 @@ def _state(user_id: str) -> dict:
             "session_id": new_session_id(),
             "session_started_at": iso_now(),
             "session_reason": "Sessão inicial",
+            "_config_loaded": False,
         }
         _SCAN_STATE[user_id] = state
     return state
+
+
+async def _load_scanner_config(user_id: str) -> dict:
+    """Carrega as preferências salvas do usuário uma vez por processo."""
+    state = _state(user_id)
+    if state.get("_config_loaded"):
+        return state
+    saved = await db.user_settings.find_one(
+        {"user_id": user_id}, {"_id": 0, "scanner": 1}
+    )
+    config = (saved or {}).get("scanner") or {}
+    allowed = {"timeframe", "min_confidence", "amount", "target_gain", "max_loss"}
+    state.update({k: v for k, v in config.items() if k in allowed and v is not None})
+    state["_config_loaded"] = True
+    return state
+
+
+async def _save_scanner_config(user_id: str, state: dict) -> None:
+    fields = ("timeframe", "min_confidence", "amount", "target_gain", "max_loss")
+    config = {key: state[key] for key in fields}
+    await db.user_settings.update_one(
+        {"user_id": user_id},
+        {"$set": {"scanner": config, "updated_at": iso_now()}},
+        upsert=True,
+    )
+    state["_config_loaded"] = True
 
 
 async def _daily_realized_profit(user_id: str) -> float:
@@ -680,12 +715,23 @@ async def _start_scan_with_config(
             detail="Valor da entrada maior que o saldo confirmado",
         )
 
-    state = _state(user_id)
+    state = await _load_scanner_config(user_id)
     if state["running"]:
+        # Atualiza os parâmetros sem reiniciar o loop nem abrir outra sessão.
+        state.update({
+            "timeframe": timeframe,
+            "min_confidence": min_confidence,
+            "auto_trade": auto_trade,
+            "amount": amount,
+            "target_gain": target_gain,
+            "max_loss": max_loss,
+        })
+        await _save_scanner_config(user_id, state)
+        await _refresh_risk_state(user_id)
         return {
             "ok": True,
             "running": True,
-            "message": "Scanner já está em execução",
+            "message": "Configurações atualizadas; scanner continua em execução",
             "session_id": state["session_id"],
         }
 
@@ -706,6 +752,7 @@ async def _start_scan_with_config(
         }
     )
 
+    await _save_scanner_config(user_id, state)
     await _refresh_risk_state(user_id)
     await _start_scan_task(user_id)
 
@@ -901,6 +948,37 @@ async def broker_refresh_balance(user=Depends(get_current_user)):
 # Rotas do scanner
 # ---------------------------------------------------------------------------
 
+@api.put("/scan/config")
+async def scan_config_update(
+    payload: ScannerConfigUpdateIn,
+    user=Depends(get_current_user),
+):
+    user_id = user["id"]
+    state = await _load_scanner_config(user_id)
+    changes = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if not changes:
+        return {"ok": True, "config": {k: state[k] for k in (
+            "timeframe", "min_confidence", "amount", "target_gain", "max_loss"
+        )}}
+
+    session = _BROKER_SESSIONS.get(user_id)
+    next_auto = bool(state.get("auto_trade"))
+    next_amount = float(changes.get("amount", state["amount"]))
+    if next_auto and session and next_amount > float(session.balance or 0):
+        raise HTTPException(status_code=400, detail="Valor da entrada maior que o saldo confirmado")
+
+    state.update(changes)
+    await _save_scanner_config(user_id, state)
+    await _refresh_risk_state(user_id)
+    return {
+        "ok": True,
+        "message": "Configurações salvas no servidor",
+        "config": {k: state[k] for k in (
+            "timeframe", "min_confidence", "amount", "target_gain", "max_loss"
+        )},
+    }
+
+
 @api.post("/scan/start")
 async def scan_start(
     payload: ScanStartIn,
@@ -934,6 +1012,7 @@ async def scan_stop(user=Depends(get_current_user)):
 @api.get("/scan/state")
 async def scan_state(user=Depends(get_current_user)):
     user_id = user["id"]
+    await _load_scanner_config(user_id)
     state = await _refresh_risk_state(user_id)
 
     tf = state["timeframe"]
@@ -991,7 +1070,7 @@ async def robot_start(
     user=Depends(get_current_user),
 ):
     user_id = user["id"]
-    state = _state(user_id)
+    state = await _load_scanner_config(user_id)
     config = payload or RobotConfigIn(
         auto_trade=True,
         amount=state["amount"],
@@ -1005,9 +1084,21 @@ async def robot_start(
                 status_code=423,
                 detail="Robô bloqueado pela proteção diária: " + state["risk_reason"],
             )
-        state["auto_trade"] = True
-        state["paused"] = False
-        return {"ok": True, "message": "Robô automático ativado", "running": True}
+        session = _BROKER_SESSIONS.get(user_id)
+        if not session or not session.connected:
+            raise HTTPException(status_code=400, detail="Corretora desconectada")
+        if float(config.amount) > float(session.balance or 0):
+            raise HTTPException(status_code=400, detail="Valor da entrada maior que o saldo confirmado")
+        state.update({
+            "auto_trade": True,
+            "paused": False,
+            "amount": config.amount,
+            "target_gain": config.target_gain,
+            "max_loss": config.max_loss,
+        })
+        await _save_scanner_config(user_id, state)
+        await _refresh_risk_state(user_id)
+        return {"ok": True, "message": "Robô ativado e configurações atualizadas", "running": True}
 
     return await _start_scan_with_config(
         user_id,
