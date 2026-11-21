@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Didi Fluxo Bot — Terminal de Sinais</title>
+  <title>Purple Signal — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
@@ -12,28 +12,22 @@
       --panel:#1a1530;
       --line:#433878;
       --muted:#a8a3c2;
-      --cyan-neon:#00f0ff;
-      --purple-primary:#7c3aed;
-      --purple-light:#a78bfa;
-      --purple-dark:#2e1b56;
+      --cyan:#00f0ff;
       --green:#34d399;
       --red:#fb7185;
       --gold:#fbbf24}
-    *{box-sizing:border-box} 
+    *{box-sizing:border-box}
     body{margin:0;background:radial-gradient(ellipse at top,#201840 0,#0c0a18 55%);color:#e9e5ff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-    .panel{background:linear-gradient(145deg,rgba(42,32,75,.92),rgba(22,16,45,.94));border:1px solid var(--line);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.45), inset 0 1px 0 rgba(167,139,250,.08)}
+    .panel{background:linear-gradient(145deg,rgba(42,32,75,.96),rgba(12,18,29,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0005}
     .muted{color:var(--muted)} 
-    .field{width:100%;background:#151029;border:1px solid #433878;border-radius:9px;padding:10px 12px;color:#e9e5ff;outline:none;transition:.15s}
-    .field:focus{border-color:var(--cyan-neon);box-shadow:0 0 0 2px rgba(0,240,255,.15), 0 0 12px rgba(0,240,255,.15)} 
+    .field{width:100%;background:#151029;border:1px solid #433878;border-radius:9px;padding:10px 12px;color:#e9e5ff;outline:none}
+    .field:focus{border-color:var(--cyan)}
     .btn{border-radius:9px;padding:10px 14px;font-weight:700;transition:.15s}
-    .btn-primary{background:linear-gradient(90deg,#4f46e5,#06b6d4);color:#ffffff;box-shadow:0 0 12px rgba(79,70,229,.25)}
-    .btn-primary:hover{box-shadow:0 0 18px rgba(0,240,255,.35)}
-    .btn-primary:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
-    .btn-secondary{background:linear-gradient(145deg,#2a2150,#1e183c);border:1px solid #524591;color:#d4ccff}
-    .btn-secondary:hover{border-color:var(--purple-light);background:linear-gradient(145deg,#352966,#251d4a)}
-    .btn-danger{background:linear-gradient(145deg,#5c1e2f,#3f1421);border:1px solid #86354c;color:#ffd4dc}
+    .btn-primary{background:linear-gradient(90deg,#4f46e5,#00f0ff);color:#04131a}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+    .btn-secondary{background:#1e1738;border:1px solid #433878;color:#d4ccff}
+    .btn-danger{background:#4a1f2a;border:1px solid #713344;color:#fecdd3}
     .pill{border:1px solid #433878;background:#1e1738;border-radius:999px;padding:4px 9px;font-size:11px}
-    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#646085}.dot.ok{background:#00f0ff;box-shadow:0 0 8px #00f0ff}.dot.bad{background:#fb7185;box-shadow:0 0 6px #fb718580}
+    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.ok{background:#00f0ff;box-shadow:0 0 10px #00f0ff88}.dot.bad{background:#fb7185}
     .signal-call{color:#00f0ff}.signal-put{color:#fb7185}
     .row-hover:hover{background:#2a2050}.hidden{display:none!important}
     .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{padding:10px 12px;border-bottom:1px solid #382f63;text-align:left;font-size:12px} th{color:#b4a9e6;font-weight:600}
@@ -45,7 +39,7 @@
 <body>
   <section id="auth-panel" class="min-h-screen flex items-center justify-center p-4">
     <div class="panel p-6 w-full max-w-md">
-      <div class="text-xl font-black mb-1">PURPLE <span style="color:#00f0ff">SIGNAL</span></div>
+      <div class="text-xl font-black mb-1">PURPLE <span class="text-cyan-300">SIGNAL</span></div>
       <p class="muted text-sm mb-5">Entre na sua conta do Purple Signal.</p>
       <form id="auth-form" class="space-y-3">
         <div id="auth-name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" maxlength="80"></div>
@@ -53,15 +47,15 @@
         <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required minlength="6" autocomplete="current-password"></div>
         <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
       </form>
-      <button id="auth-toggle" style="color:#00f0ff" class="text-sm mt-4" type="button">Criar uma conta</button>
+      <button id="auth-toggle" class="text-cyan-300 text-sm mt-4" type="button">Criar uma conta</button>
       <p id="auth-message" class="text-xs muted mt-3" aria-live="polite"></p>
     </div>
   </section>
   <main id="dashboard" class="min-h-screen p-3 md:p-5 hidden">
     <header class="header-wrap flex justify-between gap-4 mb-5">
       <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl border flex items-center justify-center" style="background:rgba(0,240,255,.08);border-color:rgba(0,240,255,.2);color:#00f0ff"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span style="color:#00f0ff">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
+        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
@@ -72,7 +66,7 @@
     <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
       <aside class="space-y-4">
         <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4" style="color:#00f0ff"></i> Conexão da corretora</h2>
+          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-cyan-300"></i> Conexão da corretora</h2>
           <form id="broker-form" class="space-y-3">
             <div><label class="text-xs muted">Corretora</label><select id="broker-name" class="field mt-1"><option value="iqoption">IQ Option</option><option value="polarium">Polarium</option></select></div>
             <div><label class="text-xs muted">E-mail da corretora</label><input id="broker-email" class="field mt-1" type="email" autocomplete="off" required></div>
@@ -84,15 +78,15 @@
           <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
         </div>
         <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4" style="color:#00f0ff"></i> Parâmetros do scanner</h2>
+          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
           <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
           <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
-          <div class="rounded-xl p-3 mt-3" style="background:rgba(21,16,48,.6)"><div class="text-xs muted">Contagem regressiva da vela atual</div><div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div><div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div></div>
+          <div class="rounded-xl bg-slate-950/60 p-3 mt-3"><div class="text-xs muted">Contagem regressiva da vela atual</div><div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div><div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div></div>
           <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
           <div class="grid grid-cols-2 gap-2 mt-3"><div><label class="text-xs muted">Valor por ordem</label><input id="robot-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div><div><label class="text-xs muted">Meta diária</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0"></div><div class="col-span-2"><label class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0"></div></div>
           <div class="grid grid-cols-2 gap-2 mt-3"><button id="scan-start" class="btn btn-primary" type="button" disabled>Iniciar scanner</button><button id="scan-stop" class="btn btn-danger hidden" type="button">Parar scanner</button><button id="robot-start" class="btn btn-primary" type="button" disabled>Ativar robô</button><button id="robot-pause" class="btn btn-secondary" type="button" disabled>Pausar robô</button><button id="robot-stop" class="btn btn-secondary" type="button" disabled>Desativar robô</button><button id="robot-reset" class="btn btn-secondary" type="button" disabled>Nova sessão / zerar placar</button></div>
           <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-          <div class="grid grid-cols-2 gap-2 mt-3 text-xs"><div class="rounded-lg p-3" style="background:rgba(21,16,48,.6)">Lucro diário<strong id="daily-profit" class="block text-base mt-1">0.00</strong></div><div class="rounded-lg p-3" style="background:rgba(21,16,48,.6)">Proteção<strong id="risk-status" class="block text-base mt-1">Normal</strong></div></div>
+          <div class="grid grid-cols-2 gap-2 mt-3 text-xs"><div class="rounded-lg bg-slate-950/60 p-3">Lucro diário<strong id="daily-profit" class="block text-base mt-1">0.00</strong></div><div class="rounded-lg bg-slate-950/60 p-3">Proteção<strong id="risk-status" class="block text-base mt-1">Normal</strong></div></div>
           <p id="robot-status-note" class="text-xs muted mt-3">Ordens automáticas desativadas até você ativar o robô.</p>
         </div>
         <div class="panel p-4">
@@ -110,10 +104,10 @@
             <div class="text-right"><div id="hero-direction" class="text-xl font-black">—</div><div id="hero-confidence" class="text-sm muted">Confiança: —</div></div>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
-            <div class="rounded-xl p-3" style="background:rgba(21,16,48,.6)"><div class="text-xs muted">Último fechamento</div><div id="hero-price" class="font-bold metric mt-1">—</div></div>
-            <div class="rounded-xl p-3" style="background:rgba(21,16,48,.6)"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M5</div></div>
-            <div class="rounded-xl p-3" style="background:rgba(21,16,48,.6)"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
-            <div class="rounded-xl p-3" style="background:rgba(21,16,48,.6)"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Último fechamento</div><div id="hero-price" class="font-bold metric mt-1">—</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M5</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
+            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
           </div>
           <p class="text-xs muted mt-4">O preço exibido é o fechamento da última vela retornada por <code>/api/chart</code>, não uma cotação tick a tick.</p>
         </div>
@@ -124,7 +118,7 @@
         <div class="panel p-4">
           <div class="flex flex-wrap justify-between items-center gap-2 mb-3"><h2 class="font-bold">Arquivo de sessões anteriores</h2><button id="archive-refresh" class="btn btn-secondary text-xs" type="button">Atualizar arquivo</button></div>
           <div class="table-wrap"><table><thead><tr><th>Início</th><th>Sinais</th><th>Vitórias</th><th>Derrotas</th><th>Acerto</th><th>Sessão</th></tr></thead><tbody id="archive-body"><tr><td colspan="6" class="skeleton">Aguardando arquivo…</td></tr></tbody></table></div>
-          <div class="border-t mt-4 pt-4" style="border-color:#433878">
+          <div class="border-t border-slate-700 mt-4 pt-4">
             <h3 class="font-bold text-sm mb-3">Pesquisar operações arquivadas</h3>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
               <input id="archive-asset" class="field text-xs" placeholder="Ativo">
@@ -140,5 +134,20 @@
           <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
           <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
           <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
-            <div class="p-3 rounded-lg" style="background:rgba(21,16,48,.6)"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
-            <div class="p-3 rounded-lg" style="background:rgba(21,16,48,.6)"><div class="muted">Máxima</div><strong id="c-high
+            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
+            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
+            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel p-4 min-w-0">
+        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
+        <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
+        <div class="border-t border-slate-700 mt-4 pt-4">
+          <h3 class="text-sm font-bold mb-2">Indicadores</h3>
+          <div id="indicator-details" class="text-xs muted">Os indicadores serão exibidos somente se a API os retornar.</div>
+        </div>
+      </aside>
+    </section>
+    <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
