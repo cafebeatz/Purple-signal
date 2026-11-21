@@ -45,11 +45,13 @@ JWT_ALG = "HS256"
 ACCESS_MIN = 60 * 24  # 24h
 
 app = FastAPI(title="Purple Signal Analyst")
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def index():
-    from fastapi.responses import RedirectResponse
+    from pathlib import Path
+    from fastapi.responses import FileResponse
 
-    return RedirectResponse(url="/api/")
+    html_file = Path(__file__).resolve().parent / "index.html"
+    return FileResponse(html_file)
 api = APIRouter(prefix="/api")
 
 
