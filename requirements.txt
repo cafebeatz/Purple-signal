@@ -140,6 +140,4 @@ pydantic
 bcrypt
 pyjwt
 pandas
-pylint
-requests
-websocket-client
+
