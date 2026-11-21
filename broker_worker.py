@@ -3,12 +3,11 @@
 Processo isolado por sessão de corretora.
 
 Suporta:
-- IQ Option com IQAir (padrão)
 - IQ Option com iqoptionapi (alternativa)
 - Polarium utilizando a camada compatível da iqoptionapi
 
 A escolha da biblioteca da IQ Option é feita pela variável:
-IQOPTION_LIBRARY=iqair
+IQOPTION_LIBRARY=iqiqoptionap
 ou
 IQOPTION_LIBRARY=iqoptionapi
 """
@@ -38,24 +37,24 @@ HOSTS = {
 
 def _selected_iq_library() -> str:
     """
-    IQAir é o padrão.
+    iqoptionap é o padrão.
     Para voltar à biblioteca antiga, configure:
     IQOPTION_LIBRARY=iqoptionapi
     """
-    selected = os.getenv("IQOPTION_LIBRARY", "iqair").strip().lower()
+    selected = os.getenv("IQOPTION_LIBRARY", "iqoptionap").strip().lower()
 
     aliases = {
-        "new": "iqair",
+        "new": "iqoptionap",
         "legacy": "iqoptionapi",
         "old": "iqoptionapi",
     }
 
     selected = aliases.get(selected, selected)
 
-    if selected not in ("iqair", "iqoptionapi"):
+    if selected not in ("iqoptionap", "iqoptionapi"):
         raise ValueError(
             "IQOPTION_LIBRARY inválida. "
-            "Use 'iqair' ou 'iqoptionapi'."
+            "Use 'iqoptionap' ou 'iqoptionapi'."
         )
 
     return selected
@@ -137,7 +136,7 @@ def _create_client(
     Cria o cliente correspondente à corretora.
 
     IQ Option:
-        IQAir ou iqoptionapi, selecionável por variável de ambiente.
+      iqoptionapi, selecionável por variável de ambiente.
 
     Polarium:
         Utiliza a biblioteca antiga com hosts adaptados.
@@ -147,15 +146,15 @@ def _create_client(
 
         library = _selected_iq_library()
 
-        if library == "iqair":
-            from iqair.client import IQOptionClient
+        if library == "iqoptionap":
+            from iqiqoptionap.client import IQOptionClient
 
             client = IQOptionClient(
                 email,
                 password
             )
 
-            return client, "iqair"
+            return client, "iqoptionap"
 
         from iqoptionapi.stable_api import IQ_Option
 
@@ -188,15 +187,15 @@ def _open_assets(client, library: str) -> list[str]:
     """
     Retorna os ativos disponíveis.
 
-    Na IQAir, utiliza get_asset_metadata().
+    Na iqoptionap, utiliza get_asset_metadata().
     Na biblioteca antiga, utiliza get_all_init_v2().
     """
 
     names = []
 
-    if library == "iqair":
+    if library == "iqoptionap":
 
-        import iqair.constants as constants
+        import iqoptionap.constants as constants
 
         metadata = client.get_asset_metadata() or {}
 
@@ -211,7 +210,7 @@ def _open_assets(client, library: str) -> list[str]:
                 except (KeyError, TypeError, ValueError):
                     continue
 
-                # A função get_candles da IQAir utiliza
+                # A função get_candles da iqoptionap utiliza
                 # o mapa ACTIVES internamente.
                 constants.ACTIVES[ticker] = active_id
 
@@ -297,9 +296,9 @@ def _candles(
     return result or None
 
 
-def _find_iqair_position(client, order_id):
+def _find_iqoptionap_position(client, order_id):
     """
-    Procura uma operação da IQAir pelo ID.
+    Procura uma operação da iqoptionap pelo ID.
 
     Primeiro consulta posições abertas.
     Depois consulta o histórico de operações encerradas.
@@ -368,13 +367,13 @@ def _find_iqair_position(client, order_id):
     return None, False
 
 
-def _check_iqair(client, order_id):
+def _check_iqoptionapr(client, order_id):
     """
     Consulta o resultado da operação usando
-    posições e histórico da IQAir.
+    posições e histórico da iqoptionap.
     """
 
-    position, is_open = _find_iqair_position(
+    position, is_open = _find_iqoptionap_position(
         client,
         order_id
     )
@@ -434,7 +433,7 @@ def _close_client(client, library: str) -> None:
 
     try:
 
-        if library == "iqair":
+        if library == "iqiqoptionap":
             client.api.close()
         else:
             client.close_connect()
@@ -482,8 +481,8 @@ def worker_main(
 
         client.change_balance(selected_balance)
 
-        # A IQAir recomenda aguardar a troca de saldo.
-        if library == "iqair":
+        # A IQiqoptionap recomenda aguardar a troca de saldo.
+        if library == "iqiqoptionap":
             time.sleep(1)
 
         info = {
@@ -603,9 +602,9 @@ def worker_main(
 
                 order_id = command["order_id"]
 
-                if library == "iqair":
+                if library == "iqiqoptionap":
 
-                    result = _check_iqair(
+                    result = _check_iqiqoptionap(
                         client,
                         order_id
                     )
