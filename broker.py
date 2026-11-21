@@ -4,7 +4,6 @@ Cada sessão real roda num processo separado (broker_worker) para não travar o 
 Modo simulado: mercado sintético persistente por ativo/timeframe.
 """
 from __future__ import annotations
-
 import asyncio
 import logging
 import multiprocessing as mp
@@ -13,14 +12,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
-
 import numpy as np
-
 from broker_worker import worker_main
-
 logger = logging.getLogger(__name__)
 _CTX = mp.get_context("spawn")
-
 DEFAULT_ASSETS = [
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "NZDUSD",
     "EURJPY", "EURGBP", "GBPJPY", "EURCHF", "AUDJPY", "AUDCAD", "CADJPY",
@@ -29,8 +24,6 @@ DEFAULT_ASSETS = [
 MAX_REAL_ASSETS = 25
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900}
 SIM_PAYOUT = 0.85
-
-
 @dataclass
 class BrokerSession:
     broker: str
@@ -45,17 +38,13 @@ class BrokerSession:
     proc: Optional[object] = field(default=None, repr=False)
     conn: Optional[object] = field(default=None, repr=False)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
-
-
 async def _recv(conn, timeout: float):
     loop = asyncio.get_running_loop()
     ready = await loop.run_in_executor(None, conn.poll, timeout)
     if not ready:
         raise TimeoutError("Corretora não respondeu a tempo")
     return conn.recv()
-
-
-async def _call(session: BrokerSession, cmd: dict, timeout: float = 30.0) -> dict:
+async def _call(session: BrokerSession, cmd: dict, timeout: float = 45.0) -> dict:
     async with session.lock:
         if session.conn is None or session.proc is None or not session.proc.is_alive():
             raise ConnectionError("Conexão com a corretora perdida")
@@ -66,8 +55,6 @@ async def _call(session: BrokerSession, cmd: dict, timeout: float = 30.0) -> dic
             _kill(session)
             session.message = "A corretora parou de responder. Reconecte."
             raise
-
-
 def _kill(session: BrokerSession) -> None:
     if session.proc is not None:
         try:
@@ -79,29 +66,23 @@ def _kill(session: BrokerSession) -> None:
             pass
     session.proc = None
     session.conn = None
-
-
 def _broker_name(broker: str) -> str:
     return "Polarium Broker" if broker == "polarium" else "IQ Option"
-
-
 async def connect_broker(broker: str, email: str, password: str, account_type: str, simulate: bool = False) -> BrokerSession:
     session = BrokerSession(broker=broker, email=email, account_type=account_type)
     if simulate:
         session.connected = True
         session.message = "Modo simulado escolhido pelo usuário"
         return session
-
     parent, child = _CTX.Pipe()
     proc = _CTX.Process(target=worker_main, args=(child, broker, email, password, account_type), daemon=True)
     proc.start()
     session.proc, session.conn = proc, parent
     try:
-        res = await _recv(parent, 45.0)
+        res = await _recv(parent, 90.0)
     except TimeoutError:
         _kill(session)
         res = {"ok": False, "error": "Timeout na conexão com a corretora"}
-
     if res.get("ok"):
         session.connected = True
         session.simulated = False
@@ -112,7 +93,6 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
             session.assets = otc_last[:MAX_REAL_ASSETS]
         session.message = f"Conectado à {_broker_name(broker)} ({account_type.upper()})"
         return session
-
     _kill(session)
     msg = str(res.get("error", ""))
     if "invalid_credentials" in msg or "wrong credentials" in msg:
@@ -121,8 +101,6 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
         raise PermissionError("Sua conta usa verificação em 2 etapas — desative-a na corretora para conectar")
     logger.warning("Falha conectando %s: %s", broker, msg[:300])
     raise ConnectionError(f"Não foi possível conectar à {_broker_name(broker)}: {msg[:160] or 'erro desconhecido'}")
-
-
 def disconnect_broker(session: BrokerSession) -> None:
     if session.conn is not None:
         try:
@@ -131,12 +109,8 @@ def disconnect_broker(session: BrokerSession) -> None:
             pass
     _kill(session)
     session.connected = False
-
-
 # ------------------ Mercado simulado ------------------
 _SIM_STATE: dict[str, dict] = {}
-
-
 def _new_candle(rng: random.Random, ts: int, price: float, tf: int, phase: float) -> dict:
     drift = np.sin(ts / (tf * 40) + phase) * 0.0006
     vol = 0.0012 + rng.random() * 0.0008
@@ -147,8 +121,6 @@ def _new_candle(rng: random.Random, ts: int, price: float, tf: int, phase: float
         "low": min(price, close_p) - abs(rng.gauss(0, vol / 2)),
         "close": close_p, "volume": rng.randint(100, 5000),
     }
-
-
 def _simulate_candles(asset: str, timeframe: str, count: int) -> list[dict]:
     tf = TIMEFRAME_SECONDS.get(timeframe, 60)
     key = f"{asset}:{timeframe}"
@@ -174,8 +146,6 @@ def _simulate_candles(asset: str, timeframe: str, count: int) -> list[dict]:
     cur["low"] = min(cur["low"], cur["close"])
     del candles[:-max(count, 150)]
     return [dict(c) for c in candles[-count:]]
-
-
 # ------------------ API usada pelo servidor ------------------
 async def get_candles_many(session: BrokerSession, assets: list[str], timeframe: str, count: int = 120) -> dict:
     if session.simulated:
@@ -183,12 +153,8 @@ async def get_candles_many(session: BrokerSession, assets: list[str], timeframe:
     res = await _call(session, {"op": "candles_many", "assets": assets,
                                 "tf": TIMEFRAME_SECONDS[timeframe], "count": count}, timeout=90.0)
     return res.get("data", {}) if res.get("ok") else {}
-
-
 async def get_candles(session: BrokerSession, asset: str, timeframe: str, count: int = 120) -> list[dict]:
     return (await get_candles_many(session, [asset], timeframe, count)).get(asset, [])
-
-
 async def place_trade(session: BrokerSession, asset: str, direction: str, amount: float, timeframe: str) -> str:
     if session.simulated:
         if amount > session.balance:
@@ -201,13 +167,9 @@ async def place_trade(session: BrokerSession, asset: str, direction: str, amount
     if not res.get("ok"):
         raise ValueError(res.get("error") or "Ordem recusada")
     return str(res["order_id"])
-
-
 async def check_trade(session: BrokerSession, order_id: str) -> dict:
     res = await _call(session, {"op": "check", "order_id": int(order_id)}, timeout=10.0)
     return res if res.get("ok") else {"done": False}
-
-
 async def refresh_balance(session: BrokerSession) -> None:
     if session.simulated:
         return
