@@ -48,6 +48,7 @@ class BrokerSession:
 
 
 async def _recv(conn, timeout: float):
+    """Recebe uma resposta normal do worker (sem mensagens de progresso)."""
     loop = asyncio.get_running_loop()
     ready = await loop.run_in_executor(None, conn.poll, timeout)
     if not ready:
@@ -55,28 +56,97 @@ async def _recv(conn, timeout: float):
     return conn.recv()
 
 
+async def _recv_connect(conn, proc, timeout: float = 45.0) -> dict:
+    """Aguarda resposta final e consome mensagens de progresso do worker."""
+    loop = asyncio.get_running_loop()
+    deadline = time.monotonic() + timeout
+    last_stage = "inicialização do processo"
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"Timeout após {timeout:.0f}s. Última etapa: {last_stage}"
+            )
+
+        ready = await loop.run_in_executor(
+            None, conn.poll, min(0.5, remaining)
+        )
+
+        if ready:
+            try:
+                message = conn.recv()
+            except EOFError as exc:
+                raise ConnectionError(
+                    f"O processo de conexão fechou o canal. Última etapa: {last_stage}"
+                ) from exc
+
+            if isinstance(message, dict) and message.get("_stage"):
+                last_stage = str(message["_stage"])
+                logger.info("Broker worker (%s): %s", proc.pid, last_stage)
+                continue
+
+            if not isinstance(message, dict):
+                raise ConnectionError("Resposta inválida recebida do processo da corretora")
+            return message
+
+        if not proc.is_alive():
+            proc.join(timeout=0)
+            # Ainda pode existir uma última mensagem no canal.
+            if conn.poll(0):
+                continue
+            raise ConnectionError(
+                "Processo de conexão encerrou antes da resposta final. "
+                f"Exit code: {proc.exitcode}; última etapa: {last_stage}"
+            )
+
+
+def _call_sync_poll(conn, timeout: float) -> bool:
+    """Função síncrona pequena para usar no executor do event loop."""
+    return conn.poll(timeout)
+
+
 async def _call(session: BrokerSession, cmd: dict, timeout: float = 30.0) -> dict:
     async with session.lock:
         if session.conn is None or session.proc is None or not session.proc.is_alive():
             raise ConnectionError("Conexão com a corretora perdida")
-        session.conn.send(cmd)
         try:
+            session.conn.send(cmd)
             return await _recv(session.conn, timeout)
         except TimeoutError:
             _kill(session)
             session.message = "A corretora parou de responder. Reconecte."
             raise
+        except (EOFError, BrokenPipeError, OSError) as exc:
+            _kill(session)
+            session.message = "O processo de conexão foi encerrado. Reconecte."
+            raise ConnectionError(session.message) from exc
 
 
 def _kill(session: BrokerSession) -> None:
-    if session.proc is not None:
+    """Encerra o worker e fecha o endpoint IPC pertencente à sessão."""
+    proc = session.proc
+    conn = session.conn
+
+    if proc is not None:
         try:
-            session.proc.terminate()
-            session.proc.join(2)
-            if session.proc.is_alive():
-                session.proc.kill()
+            if proc.is_alive():
+                proc.terminate()
+                proc.join(2)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(1)
+            else:
+                proc.join(timeout=0)
+        except Exception:  # noqa: BLE001
+            logger.exception("Erro ao encerrar broker worker")
+
+    if conn is not None:
+        try:
+            conn.close()
         except Exception:  # noqa: BLE001
             pass
+
     session.proc = None
     session.conn = None
 
@@ -85,22 +155,43 @@ def _broker_name(broker: str) -> str:
     return "Polarium Broker" if broker == "polarium" else "IQ Option"
 
 
-async def connect_broker(broker: str, email: str, password: str, account_type: str, simulate: bool = False) -> BrokerSession:
+async def connect_broker(
+    broker: str,
+    email: str,
+    password: str,
+    account_type: str,
+    simulate: bool = False,
+) -> BrokerSession:
     session = BrokerSession(broker=broker, email=email, account_type=account_type)
     if simulate:
         session.connected = True
         session.message = "Modo simulado escolhido pelo usuário"
         return session
 
-    parent, child = _CTX.Pipe()
-    proc = _CTX.Process(target=worker_main, args=(child, broker, email, password, account_type), daemon=True)
-    proc.start()
-    session.proc, session.conn = proc, parent
+    parent, child = _CTX.Pipe(duplex=True)
+    proc = _CTX.Process(
+        target=worker_main,
+        args=(child, broker, email, password, account_type),
+        daemon=True,
+    )
+
     try:
-        res = await _recv(parent, 45.0)
-    except TimeoutError:
+        proc.start()
+    except Exception:
+        parent.close()
+        child.close()
+        raise
+
+    # O processo pai não deve manter aberto o endpoint destinado ao filho.
+    child.close()
+    session.proc, session.conn = proc, parent
+
+    try:
+        res = await _recv_connect(parent, proc, 45.0)
+    except (TimeoutError, ConnectionError, EOFError, OSError) as exc:
+        logger.error("Falha no handshake de %s: %s", broker, exc)
         _kill(session)
-        res = {"ok": False, "error": "Timeout na conexão com a corretora"}
+        res = {"ok": False, "error": str(exc)}
 
     if res.get("ok"):
         session.connected = True
@@ -120,13 +211,18 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
     if "2fa" in msg.lower() or "two_factor" in msg or "verify" in msg.lower():
         raise PermissionError("Sua conta usa verificação em 2 etapas — desative-a na corretora para conectar")
     logger.warning("Falha conectando %s: %s", broker, msg[:300])
-    raise ConnectionError(f"Não foi possível conectar à {_broker_name(broker)}: {msg[:160] or 'erro desconhecido'}")
+    raise ConnectionError(
+        f"Não foi possível conectar à {_broker_name(broker)}: "
+        f"{msg[:240] or 'erro desconhecido'}"
+    )
 
 
 def disconnect_broker(session: BrokerSession) -> None:
     if session.conn is not None:
         try:
             session.conn.send({"op": "close"})
+            if session.proc is not None:
+                session.proc.join(timeout=0.5)
         except Exception:  # noqa: BLE001
             pass
     _kill(session)
@@ -177,27 +273,41 @@ def _simulate_candles(asset: str, timeframe: str, count: int) -> list[dict]:
 
 
 # ------------------ API usada pelo servidor ------------------
-async def get_candles_many(session: BrokerSession, assets: list[str], timeframe: str, count: int = 120) -> dict:
+async def get_candles_many(
+    session: BrokerSession, assets: list[str], timeframe: str, count: int = 120
+) -> dict:
     if session.simulated:
         return {a: _simulate_candles(a, timeframe, count) for a in assets}
-    res = await _call(session, {"op": "candles_many", "assets": assets,
-                                "tf": TIMEFRAME_SECONDS[timeframe], "count": count}, timeout=90.0)
+    res = await _call(
+        session,
+        {"op": "candles_many", "assets": assets,
+         "tf": TIMEFRAME_SECONDS[timeframe], "count": count},
+        timeout=90.0,
+    )
     return res.get("data", {}) if res.get("ok") else {}
 
 
-async def get_candles(session: BrokerSession, asset: str, timeframe: str, count: int = 120) -> list[dict]:
+async def get_candles(
+    session: BrokerSession, asset: str, timeframe: str, count: int = 120
+) -> list[dict]:
     return (await get_candles_many(session, [asset], timeframe, count)).get(asset, [])
 
 
-async def place_trade(session: BrokerSession, asset: str, direction: str, amount: float, timeframe: str) -> str:
+async def place_trade(
+    session: BrokerSession, asset: str, direction: str, amount: float, timeframe: str
+) -> str:
     if session.simulated:
         if amount > session.balance:
             raise ValueError("Saldo simulado insuficiente")
         session.balance = round(session.balance - amount, 2)
         return f"SIM-{uuid.uuid4().hex[:10]}"
     minutes = TIMEFRAME_SECONDS[timeframe] // 60
-    res = await _call(session, {"op": "buy", "asset": asset, "action": direction.lower(),
-                                "amount": amount, "minutes": minutes}, timeout=20.0)
+    res = await _call(
+        session,
+        {"op": "buy", "asset": asset, "action": direction.lower(),
+         "amount": amount, "minutes": minutes},
+        timeout=20.0,
+    )
     if not res.get("ok"):
         raise ValueError(res.get("error") or "Ordem recusada")
     return str(res["order_id"])
