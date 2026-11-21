@@ -608,7 +608,7 @@ async def _scan_loop(user_id: str) -> None:
                     continue
 
                 closed_candles[asset] = closed
-                analysis = analyze_candles(closed, brain_profile=brain_profile)
+                analysis = analyze_candles(closed)
                 direction = str(analysis.get("direction", "NEUTRO")).upper()
                 is_ready = bool(analysis.get("ready"))
                 is_confirmed = is_ready and direction in {"CALL", "PUT"}
