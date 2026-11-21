@@ -22,8 +22,7 @@
     .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
     input[type=range]{accent-color:#22d3ee}
     @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
-    .ind-item{padding:2px 0; border-bottom: 1px solid #243044;}
-    .ind-item:last-child{border-bottom:none;}
+    .ind-item{padding:3px 0;}
     .ind-name{color:#a78bfa;}
     .ind-value{color:#22d3ee;}
   </style>
@@ -138,4 +137,8 @@
         <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
         <div class="border-t border-slate-700 mt-4 pt-4">
           <h3 class="text-sm font-bold mb-2">Indicadores</h3>
-          <div id="indicator-details
+          <div id="indicator-details" class="text-xs muted">Os indicadores serão exibidos somente se a API os retornar.</div>
+        </div>
+      </aside>
+    </section>
+    <div id
