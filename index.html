@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Purple Signal — Terminal de Sinais</title>
+  <title>Didi Fluxo Bot — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
@@ -22,66 +22,32 @@
     .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
     input[type=range]{accent-color:#22d3ee}
     @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
-
-    /* Purple Signal — identidade visual violeta/neon */
-    :root{
-      color-scheme:dark;
-      --bg:#0b0814;--panel:#150f28;--line:#3b2e5f;--muted:#a596c9;
-      --cyan:#00d4ff;--green:#34d399;--red:#fb7185;--gold:#fbbf24;
-      --neon-purple:#a855f7;
-    }
-    body{background:radial-gradient(ellipse at top,#241840 0,#0b0814 48%);color:#e9e4f8}
-    .panel{background:linear-gradient(145deg,rgba(36,25,60,.96),rgba(18,12,35,.96));border-color:#3b2e5f;box-shadow:0 12px 35px #0005,0 0 12px rgba(168,85,247,.08)}
-    .field{background:#100a1f;border-color:#453570;color:#e9e4f8}
-    .field:focus{border-color:#00d4ff;box-shadow:0 0 0 2px rgba(0,212,255,.15),0 0 8px rgba(0,212,255,.25)}
-    .btn-primary{background:linear-gradient(90deg,#1e1b4b,#3b0763);color:#e0e7ff;border:1px solid rgba(0,212,255,.3);box-shadow:0 0 8px rgba(0,212,255,.15)}
-    .btn-primary:hover{box-shadow:0 0 12px rgba(0,212,255,.3)}
-    .btn-secondary{background:#1e1b4b;border-color:#4c3d7c;color:#dcd6f7}
-    .btn-danger{background:#421b37;border-color:#6b2e5c;color:#fddde4}
-    .pill{border-color:#423469;background:#1c1633}
-    th,td{border-bottom-color:#342854} th{color:#9e8fd0}
-    .row-hover:hover{background:#251a42}
-    .skeleton{color:#7c6ea8}
-    input[type=range]{accent-color:#00d4ff}
-    .purple-neon{color:#00d4ff;text-shadow:0 0 6px rgba(0,212,255,.35)}
-    .robot-panel{border-color:rgba(168,85,247,.42);box-shadow:0 12px 35px #0005,0 0 16px rgba(168,85,247,.09)}
-    .robot-lock{background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:10px;padding:10px}
-    .robot-disabled{opacity:.58;cursor:not-allowed}
-
   </style>
 </head>
 <body>
-  <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
-    <div class="panel w-full max-w-md p-7">
-      <div class="flex items-center gap-3 mb-6">
-        <div class="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-2xl font-black tracking-wide">PURPLE <span style="color:#00d4ff;text-shadow:0 0 8px rgba(0,212,255,.4)">SIGNAL</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
-      </div>
-      <div class="flex gap-2 mb-5">
-        <button id="mode-login" class="btn btn-primary flex-1" type="button">Entrar</button>
-        <button id="mode-register" class="btn btn-secondary flex-1" type="button">Criar conta</button>
-      </div>
+  <section id="auth-panel" class="min-h-screen flex items-center justify-center p-4">
+    <div class="panel p-6 w-full max-w-md">
+      <div class="text-xl font-black mb-1">PURPLE <span class="text-cyan-300">SIGNAL</span></div>
+      <p class="muted text-sm mb-5">Entre na sua conta do Purple Signal.</p>
       <form id="auth-form" class="space-y-3">
-        <div id="name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" autocomplete="name"></div>
+        <div id="auth-name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" maxlength="80"></div>
         <div><label class="text-xs muted">E-mail</label><input id="auth-email" class="field mt-1" type="email" required autocomplete="username"></div>
-        <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required autocomplete="current-password"></div>
+        <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required minlength="6" autocomplete="current-password"></div>
         <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
       </form>
-      <p id="auth-error" class="text-sm text-rose-300 mt-4" role="alert"></p>
-      <p class="text-xs muted mt-5">A autenticação é validada pelo servidor. Sem resposta válida da API, o painel não libera o acesso.</p>
+      <button id="auth-toggle" class="text-cyan-300 text-sm mt-4" type="button">Criar uma conta</button>
+      <p id="auth-message" class="text-xs muted mt-3" aria-live="polite"></p>
     </div>
-  </div>
-
-  <main id="dashboard" class="hidden min-h-screen p-3 md:p-5">
+  </section>
+  <main id="dashboard" class="min-h-screen p-3 md:p-5 hidden">
     <header class="header-wrap flex justify-between gap-4 mb-5">
       <div class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span style="color:#00d4ff;text-shadow:0 0 8px rgba(0,212,255,.4)">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
-        <span class="pill flex items-center gap-2"><span id="broker-dot" class="dot"></span><span id="broker-status">Corretora desconectada</span></span>
-        <button id="logout-btn" class="btn btn-secondary text-sm" type="button">Sair</button>
+        <span class="pill flex items-center gap-2"><span id="broker-dot" class="dot"></span><span id="broker-status">Corretora desconectada</span></span><button id="logout" class="btn btn-secondary text-xs" type="button">Sair</button>
       </div>
     </header>
 
@@ -99,45 +65,17 @@
           </form>
           <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
         </div>
-        <div class="panel robot-panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2" style="color:#c084fc"><i data-lucide="bot" class="w-4"></i> Robô Automático</h2>
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-sm">Status do robô</span>
-              <span id="robot-status" class="pill flex items-center gap-2"><span class="dot"></span><span>Backend não integrado</span></span>
-            </div>
-            <label class="flex items-center gap-2 text-xs muted robot-disabled">
-              <input id="auto-trade" type="checkbox" class="w-4 h-4" style="accent-color:#a855f7" disabled>
-              Ativar operações automáticas
-            </label>
-            <div class="grid grid-cols-2 gap-2">
-              <button id="robot-start" class="btn btn-success text-sm robot-disabled" type="button" disabled>▶ Iniciar Robô</button>
-              <button id="robot-stop" class="btn btn-danger text-sm robot-disabled" type="button" disabled>⏹ Parar Robô</button>
-              <button id="robot-pause" class="btn btn-secondary text-sm robot-disabled" type="button" disabled>⏸ Pausar</button>
-              <button id="robot-reset" class="btn btn-secondary text-sm robot-disabled" type="button" disabled>↻ Resetar</button>
-            </div>
-            <div class="robot-lock">
-              <h3 class="text-xs font-semibold mb-2" style="color:#c084fc">🔒 Travas de segurança</h3>
-              <div id="robot-travas" class="text-xs muted space-y-1">
-                <div>Aguardando integração das regras de risco no servidor.</div>
-              </div>
-            </div>
-            <div class="text-xs muted space-y-1">
-              <div>Última verificação: <span id="robot-last-check">—</span></div>
-              <div>Modo de operação: <span id="robot-mode">Indisponível</span></div>
-            </div>
-            <p class="text-xs muted">Painel visual preparado. Os comandos permanecem bloqueados até existir uma API de robô confirmada no backend. Isso evita simular operações ou enviar ordens por rotas não verificadas.</p>
-          </div>
-        </div>
-
         <div class="panel p-4">
           <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
           <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
           <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
+          <div class="rounded-xl bg-slate-950/60 p-3 mt-3"><div class="text-xs muted">Contagem regressiva da vela atual</div><div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div><div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div></div>
           <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
-          <div class="mt-4 flex gap-2"><button id="scan-start" class="btn btn-primary flex-1" type="button" disabled>Iniciar</button><button id="scan-stop" class="btn btn-danger flex-1 hidden" type="button">Parar</button></div>
+          <div class="grid grid-cols-2 gap-2 mt-3"><div><label class="text-xs muted">Valor por ordem</label><input id="robot-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div><div><label class="text-xs muted">Meta diária</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0"></div><div class="col-span-2"><label class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0"></div></div>
+          <div class="grid grid-cols-2 gap-2 mt-3"><button id="scan-start" class="btn btn-primary" type="button" disabled>Iniciar scanner</button><button id="scan-stop" class="btn btn-danger hidden" type="button">Parar scanner</button><button id="robot-start" class="btn btn-primary" type="button" disabled>Ativar robô</button><button id="robot-pause" class="btn btn-secondary" type="button" disabled>Pausar robô</button><button id="robot-stop" class="btn btn-secondary" type="button" disabled>Desativar robô</button><button id="robot-reset" class="btn btn-secondary" type="button" disabled>Nova sessão / zerar placar</button></div>
           <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-          <p class="text-xs muted mt-3">A execução automática de ordens permanece desativada nesta interface.</p>
+          <div class="grid grid-cols-2 gap-2 mt-3 text-xs"><div class="rounded-lg bg-slate-950/60 p-3">Lucro diário<strong id="daily-profit" class="block text-base mt-1">0.00</strong></div><div class="rounded-lg bg-slate-950/60 p-3">Proteção<strong id="risk-status" class="block text-base mt-1">Normal</strong></div></div>
+          <p id="robot-status-note" class="text-xs muted mt-3">Ordens automáticas desativadas até você ativar o robô.</p>
         </div>
         <div class="panel p-4">
           <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
@@ -163,7 +101,22 @@
         </div>
         <div class="panel p-4">
           <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Histórico real de sinais</h2><span id="history-stats" class="text-xs muted">Sem operações registradas</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="6" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
+          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Execução / ordem</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="7" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
+        </div>
+        <div class="panel p-4">
+          <div class="flex flex-wrap justify-between items-center gap-2 mb-3"><h2 class="font-bold">Arquivo de sessões anteriores</h2><button id="archive-refresh" class="btn btn-secondary text-xs" type="button">Atualizar arquivo</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Início</th><th>Sinais</th><th>Vitórias</th><th>Derrotas</th><th>Acerto</th><th>Sessão</th></tr></thead><tbody id="archive-body"><tr><td colspan="6" class="skeleton">Aguardando arquivo…</td></tr></tbody></table></div>
+          <div class="border-t border-slate-700 mt-4 pt-4">
+            <h3 class="font-bold text-sm mb-3">Pesquisar operações arquivadas</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <input id="archive-asset" class="field text-xs" placeholder="Ativo">
+              <select id="archive-result" class="field text-xs"><option value="">Todos os resultados</option><option value="WIN">Vitória</option><option value="LOSS">Derrota</option><option value="PENDENTE">Pendente</option><option value="EMPATE">Empate</option></select>
+              <input id="archive-from" class="field text-xs" type="date" aria-label="Data inicial">
+              <input id="archive-to" class="field text-xs" type="date" aria-label="Data final">
+            </div>
+            <button id="archive-search" class="btn btn-secondary text-xs mt-2" type="button">Pesquisar arquivo</button>
+            <div class="table-wrap mt-3"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Execução / ordem</th><th>Lucro</th></tr></thead><tbody id="archive-trades-body"><tr><td colspan="7" class="skeleton">Use os filtros para pesquisar operações anteriores.</td></tr></tbody></table></div>
+          </div>
         </div>
         <div class="panel p-4">
           <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
@@ -181,7 +134,7 @@
         <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
         <div class="border-t border-slate-700 mt-4 pt-4">
           <h3 class="text-sm font-bold mb-2">Indicadores</h3>
-          <div id="indicator-details" class="text-xs muted space-y-1">Os indicadores serão exibidos em formato legível quando a API os retornar.</div>
+          <div id="indicator-details" class="text-xs muted">Os indicadores serão exibidos somente se a API os retornar.</div>
         </div>
       </aside>
     </section>
@@ -193,9 +146,10 @@
   'use strict';
   const API='/api';
   const $=id=>document.getElementById(id);
-  let authMode='login', token=localStorage.getItem('purple_signal_api_token')||'';
-  let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
-  let pollTimers=[];
+  let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null;
+  let pollTimers=[], candleCloseAt=0;
+  let configSaveTimer=null, configSaving=false, configDirty=false;
+  const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
   const safe=(v)=>String(v??'—');
   const dateFmt=(v)=>{
@@ -207,54 +161,21 @@
   async function api(path, options={}){
     const headers={...(options.headers||{})};
     if(options.body!==undefined)headers['Content-Type']='application/json';
-    if(token)headers.Authorization='Bearer '+token;
     const res=await fetch(API+path,{...options,headers,credentials:'same-origin'});
     let data={};try{data=await res.json()}catch(_){}
     if(!res.ok)throw new Error(data.detail||data.message||data.error||`Erro HTTP ${res.status}`);
     return data;
   }
-  function showLogin(message=''){
-    stopPolling();$('dashboard').classList.add('hidden');$('login-screen').classList.remove('hidden');
-    $('auth-error').textContent=message;user=null;
-  }
   function showDashboard(){
-    $('login-screen').classList.add('hidden');$('dashboard').classList.remove('hidden');
+    $('dashboard').classList.remove('hidden');
     if(window.lucide)lucide.createIcons();
   }
-  function setAuthMode(mode){
-    authMode=mode;const reg=mode==='register';
-    $('name-wrap').classList.toggle('hidden',!reg);
-    $('mode-login').className='btn '+(!reg?'btn-primary':'btn-secondary')+' flex-1';
-    $('mode-register').className='btn '+(reg?'btn-primary':'btn-secondary')+' flex-1';
-    $('auth-submit').textContent=reg?'Criar conta':'Entrar';
-    $('auth-password').autocomplete=reg?'new-password':'current-password';
-    $('auth-error').textContent='';
-  }
-  $('mode-login').addEventListener('click',()=>setAuthMode('login'));
-  $('mode-register').addEventListener('click',()=>setAuthMode('register'));
-  $('auth-form').addEventListener('submit',async e=>{
-    e.preventDefault();$('auth-submit').disabled=true;$('auth-error').textContent='Validando no servidor…';
-    const email=$('auth-email').value.trim(),password=$('auth-password').value;
-    try{
-      const body={email,password};
-      if(authMode==='register')body.name=$('auth-name').value.trim();
-      if(authMode==='register'&&!body.name)throw new Error('Informe seu nome.');
-      const result=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});
-      if(result.token){token=result.token;localStorage.setItem('purple_signal_api_token',token)}
-      const me=await api('/auth/me');
-      user=me.user||me;
-      showDashboard();await refreshAll();startPolling();
-    }catch(err){token='';localStorage.removeItem('purple_signal_api_token');$('auth-error').textContent=err.message||'Não foi possível autenticar.'}
-    finally{$('auth-submit').disabled=false}
-  });
-  $('logout-btn').addEventListener('click',async()=>{
-    try{await api('/auth/logout',{method:'POST'})}catch(_){}
-    token='';localStorage.removeItem('purple_signal_api_token');showLogin('Sessão encerrada.');
-  });
-  async function restoreSession(){
-    try{const me=await api('/auth/me');user=me.user||me;showDashboard();await refreshAll();startPolling()}
-    catch(_){showLogin('Entre com sua conta para continuar.')}
-  }
+  function showAuth(message=''){$('auth-panel').classList.remove('hidden');$('dashboard').classList.add('hidden');$('auth-message').textContent=message}
+  function showApp(){$('auth-panel').classList.add('hidden');$('dashboard').classList.remove('hidden');if(window.lucide)lucide.createIcons()}
+  $('auth-toggle').addEventListener('click',()=>{authMode=authMode==='login'?'register':'login';$('auth-name-wrap').classList.toggle('hidden',authMode!=='register');$('auth-submit').textContent=authMode==='login'?'Entrar':'Criar conta';$('auth-toggle').textContent=authMode==='login'?'Criar uma conta':'Já tenho conta';$('auth-password').autocomplete=authMode==='login'?'current-password':'new-password';$('auth-message').textContent=''});
+  $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const payload={email:$('auth-email').value.trim(),password:$('auth-password').value};if(authMode==='register')payload.name=$('auth-name').value.trim();try{await api(authMode==='login'?'/auth/login':'/auth/register',{method:'POST',body:JSON.stringify(payload)});authenticated=true;showApp();await refreshAll();startPolling();}catch(err){$('auth-message').textContent=err.message}});
+  $('logout').addEventListener('click',async()=>{try{await api('/auth/logout',{method:'POST'})}catch(_){}stopPolling();authenticated=false;brokerConnected=false;scanning=false;showAuth('Sessão encerrada. Entre novamente.');});
+  async function checkAuth(){try{await api('/auth/me');authenticated=true;showApp();return true}catch(_){authenticated=false;showAuth();return false}}
 
   $('broker-form').addEventListener('submit',async e=>{
     e.preventDefault();
@@ -299,19 +220,51 @@
     }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
   }
   $('refresh-balance').addEventListener('click',async()=>{
-    try{const s=await api('/broker/status');const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
+    try{const s=await api('/broker/refresh-balance',{method:'POST'});const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
     catch(err){toast(err.message)}
   });
 
-  $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
+  function readConfig(){return {
+    timeframe:$('timeframe').value,
+    min_confidence:Number($('confidence').value),
+    amount:Number($('robot-amount').value),
+    target_gain:Number($('target-gain').value),
+    max_loss:Number($('max-loss').value)
+  }}
+  async function saveConfig(){
+    if(!authenticated)return;
+    const cfg=readConfig();
+    if(!Number.isFinite(cfg.amount)||cfg.amount<1||!Number.isFinite(cfg.target_gain)||cfg.target_gain<0||!Number.isFinite(cfg.max_loss)||cfg.max_loss<0){
+      $('scan-message').textContent='Confira os valores: entrada mínima 1; metas e limites não podem ser negativos.';
+      return;
+    }
+    configSaving=true;
+    try{
+      await api('/scan/config',{method:'PUT',body:JSON.stringify(cfg)});
+      configDirty=false;
+      $('scan-message').textContent='Configurações salvas no servidor.';
+    }catch(err){
+      $('scan-message').textContent='Não foi possível salvar as configurações: '+err.message;
+      toast(err.message);
+    }finally{configSaving=false}
+  }
+  function scheduleConfigSave(){
+    configDirty=true;
+    clearTimeout(configSaveTimer);
+    configSaveTimer=setTimeout(saveConfig,450);
+  }
+  $('confidence').addEventListener('input',e=>{$('confidence-label').textContent=e.target.value+'%';scheduleConfigSave()});
   $('timeframe').addEventListener('change',async()=>{
     $('hero-timeframe').textContent=$('timeframe').value;
+    scheduleConfigSave();
     if(selectedAsset)await refreshChart();
   });
+  ['robot-amount','target-gain','max-loss'].forEach(id=>$(id).addEventListener('change',scheduleConfigSave));
   $('scan-start').addEventListener('click',async()=>{
     try{
+      await saveConfig();
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:2
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
       })});
       scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
       await refreshScan();
@@ -333,15 +286,20 @@
   }
   function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
   function renderRanking(items){
-    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
-    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
+    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos analisados';
+    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Aguardando candles da corretora para iniciar a análise dos ativos.</div>';return}
     $('scanner-list').innerHTML=items.map((x,i)=>{
       const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
       const conf=x.confidence??x.confidence_pct??x.score;
       const price=x.price??x.close;
+      const confirmed=x.signal_ready===true||x.status==='CONFIRMADO';
+      const status=x.status==='AGUARDANDO_DADOS'?'AGUARDANDO DADOS':confirmed?'CONFIRMADO':'AGUARDANDO CONFIRMAÇÃO';
+      const statusClass=confirmed?'text-emerald-300':'text-amber-300';
+      const directionLabel=dir&&dir!=='NEUTRO'?dir:'NEUTRO';
       return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':'text-emerald-300'}">${escapeHtml(dir||'—')}</span></div>
-        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
+        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':confirmed?'text-emerald-300':'text-amber-300'}">${escapeHtml(directionLabel)}</span></div>
+        <div class="flex justify-between mt-2 text-xs"><span class="${statusClass}">${status}</span><span class="muted">Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span></div>
+        <div class="flex justify-end mt-1 text-xs muted"><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
       </button>`;
     }).join('');
     $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
@@ -358,61 +316,26 @@
     $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
     $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
     $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators||x.analysis||x.metrics||null;
-    renderIndicators(ind);
-  }
-  function humanizeKey(key){
-    return String(key).replace(/[_-]+/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2')
-      .replace(/\bma(\d+)\b/gi,'Média móvel $1')
-      .replace(/\bema(\d+)\b/gi,'EMA $1')
-      .replace(/\brsi\b/gi,'RSI')
-      .replace(/\badx\b/gi,'ADX')
-      .replace(/\bdi ?plus\b/gi,'DI+')
-      .replace(/\bdi ?minus\b/gi,'DI−')
-      .replace(/\bmacd\b/gi,'MACD')
-      .replace(/\batr\b/gi,'ATR')
-      .replace(/\bvolume\b/gi,'Volume')
-      .replace(/\b[a-z]/g,c=>c.toUpperCase());
-  }
-  function formatIndicatorValue(value){
-    if(value===null||value===undefined||value==='')return '—';
-    if(typeof value==='boolean')return value?'Sim':'Não';
-    if(typeof value==='number')return Number.isFinite(value)?value.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
-    if(typeof value==='string')return value;
-    return null;
-  }
-  function renderIndicators(data){
-    const target=$('indicator-details');
-    if(data===null||data===undefined||data===''){
-      target.textContent='A API não retornou valores detalhados dos indicadores para este sinal.';
-      return;
-    }
-    const entries=[];
-    function collect(value,label,depth=0){
-      if(depth>3||value===null||value===undefined)return;
-      if(Array.isArray(value)){
-        value.forEach((item,index)=>collect(item,`${label} ${index+1}`,depth+1));
-        return;
-      }
-      if(typeof value==='object'){
-        Object.entries(value).forEach(([key,item])=>collect(item,label?`${label} · ${humanizeKey(key)}`:humanizeKey(key),depth+1));
-        return;
-      }
-      const formatted=formatIndicatorValue(value);
-      if(formatted!==null)entries.push({label:label||'Indicador',value:formatted});
-    }
-    collect(data,'');
-    if(!entries.length){
-      target.textContent='A API retornou dados, mas não há valores de indicadores em formato reconhecível.';
-      return;
-    }
-    target.innerHTML=entries.map(item=>`<div class="flex items-center justify-between gap-3 py-2 border-b border-slate-700/60 last:border-0"><span class="muted">${escapeHtml(item.label)}</span><strong class="text-slate-100 text-right break-all">${escapeHtml(item.value)}</strong></div>`).join('');
+    const ind=x.indicators||x.analysis||null;
+    $('indicator-details').textContent=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function updateCandleCountdown(){if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));$('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0')}
   async function refreshScan(){
     try{
       const s=await api('/scan/state');
-      scanning=s.running===true;updateScanUI();
+      scanning=s.running===true;robotPaused=s.paused===true;robotActive=s.auto_trade===true;updateScanUI();updateRobotUI();
+      candleCloseAt=Number(s.candle_close_ts||0);$('candle-countdown-note').textContent=candleCloseAt?'Fechamento estimado da vela '+(s.timeframe||$('timeframe').value)+' · horário do servidor':'Inicie o scanner para sincronizar a contagem.';updateCandleCountdown();
+      const editingConfig=configDirty||configSaving||configFields.some(id=>$(id)===document.activeElement);
+      if(!editingConfig){
+        $('timeframe').value=s.timeframe||$('timeframe').value;
+        $('confidence').value=s.min_confidence??$('confidence').value;
+        $('confidence-label').textContent=$('confidence').value+'%';
+        $('robot-amount').value=s.amount??$('robot-amount').value;
+        $('target-gain').value=s.target_gain??0;
+        $('max-loss').value=s.max_loss??0;
+      }
+      $('daily-profit').textContent=fmt(s.daily_profit??0,2);$('risk-status').textContent=s.risk_halted?'BLOQUEADO':'Normal';$('risk-status').className='block text-base mt-1 '+(s.risk_halted?'text-rose-300':'text-emerald-300');$('robot-status-note').textContent=s.risk_reason||s.message||'Proteção diária ativa conforme configuração.';
       $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
       const ranking=normalizeRanking(s);
       renderRanking(ranking);
@@ -427,34 +350,74 @@
       const candles=Array.isArray(data.candles)?data.candles:[];
       const c=candles[candles.length-1];
       $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
-      if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
+      if(!c){$('chart-summary').textContent='A corretora ainda não disponibilizou candles fechados para este ativo/timeframe.';return}
       $('hero-price').textContent=fmt(c.close,5);
       $('hero-candle-time').textContent=dateFmt(c.ts);
       $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
       $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. MA9: ${last(data.ma9)} · MA21: ${last(data.ma21)}.`;
-    }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
+    }catch(err){$('chart-summary').textContent='Não foi possível carregar candles de '+selectedAsset+': '+err.message}
   }
-  function last(arr){return Array.isArray(arr)&&arr.length?fmt(arr[arr.length-1],5):'—'}
+  function last(arr){if(!Array.isArray(arr)||!arr.length)return '—';const v=arr[arr.length-1];return fmt(typeof v==='object'?v.value:v,5)}
+  function tradeExecutionLabel(item){
+    const trade=item?.trade||{};
+    const status=String(trade.status||'').toUpperCase();
+    const orderId=trade.order_id;
+    if(orderId!==undefined&&orderId!==null&&String(orderId).trim()!==''){
+      return `${status||'ABERTA'} · #${String(orderId)}`;
+    }
+    if(status==='ERRO')return `ERRO · ${String(trade.error||'falha ao enviar')}`;
+    if(status==='ABERTA')return 'ABERTA · ID não retornado';
+    if(status==='FECHADA')return 'FECHADA · ID não retornado';
+    return 'SEM ORDEM';
+  }
+  function resultClass(value){
+    const result=String(value||'PENDENTE').toUpperCase();
+    if(result==='WIN'||result==='WON'||result==='GAIN')return 'text-emerald-300';
+    if(result==='LOSS'||result==='LOST')return 'text-rose-300';
+    return 'text-amber-200';
+  }
   async function refreshHistory(){
     try{
       const data=await api('/signals/history?limit=50');
       const items=Array.isArray(data.items)?data.items:[];
       $('history-stats').textContent=data.stats?`${data.stats.wins??0} vitórias · ${data.stats.losses??0} perdas · ${fmt(data.stats.winrate??0,1)}% acerto · lucro ${fmt(data.stats.profit??0,2)}`:'';
-      if(!items.length){$('history-body').innerHTML='<tr><td colspan="6" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
+      if(!items.length){$('history-body').innerHTML='<tr><td colspan="7" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
       $('history-body').innerHTML=items.map(x=>{
         const result=String(x.result??x.status??'PENDENTE').toUpperCase();
-        const cls=result.includes('WIN')||result.includes('WON')||result.includes('GAIN')?'text-emerald-300':result.includes('LOSS')||result.includes('LOST')?'text-rose-300':'text-amber-200';
-        return `<tr><td>${escapeHtml(dateFmt(x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${cls}">${escapeHtml(result)}</td><td>${x.profit==null?'—':escapeHtml(fmt(x.profit,2))}</td></tr>`;
+        const execution=tradeExecutionLabel(x);
+        const profit=x.profit??x.trade?.profit;
+        return `<tr><td>${escapeHtml(dateFmt(x.ts??x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(result)}">${escapeHtml(result)}</td><td>${escapeHtml(execution)}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`;
       }).join('');
-    }catch(err){$('history-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
+    }catch(err){$('history-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
   }
-  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory()])}
+  function updateRobotUI(){
+    $('robot-start').disabled=!brokerConnected||robotActive;
+    $('robot-pause').disabled=!scanning;$('robot-pause').textContent=robotPaused?'Retomar robô':'Pausar robô';
+    $('robot-stop').disabled=!robotActive;$('robot-reset').disabled=!authenticated;
+    $('robot-status-note').textContent=robotActive?(robotPaused?'Robô pausado; sinais pendentes continuam sendo acompanhados.':'Robô automático ativo.'):'Ordens automáticas desativadas; scanner analítico pode continuar ativo.';
+  }
+  $('robot-start').addEventListener('click',async()=>{try{const cfg={auto_trade:true,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)};const r=scanning?await api('/robot/start',{method:'POST',body:JSON.stringify(cfg)}):await api('/scan/start',{method:'POST',body:JSON.stringify({...cfg,timeframe:$('timeframe').value,min_confidence:Number($('confidence').value)})});robotActive=true;robotPaused=false;$('scan-message').textContent=r.message;toast(r.message||'Robô ativado pelo servidor.');await refreshScan()}catch(e){toast(e.message);$('scan-message').textContent=e.message}});
+  $('robot-pause').addEventListener('click',async()=>{try{const r=await api('/robot/pause',{method:'POST'});robotPaused=r.paused;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
+  $('robot-stop').addEventListener('click',async()=>{try{const r=await api('/robot/stop',{method:'POST'});robotActive=false;robotPaused=false;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
+  $('robot-reset').addEventListener('click',async()=>{if(!confirm('Criar uma nova sessão e zerar somente o placar atual? O arquivo anterior será preservado.'))return;try{const r=await api('/robot/reset',{method:'POST'});toast(r.message);await Promise.all([refreshScan(),refreshHistory(),refreshArchive()])}catch(e){toast(e.message)}});
+  async function refreshArchive(){try{const r=await api('/signals/sessions?limit=100');const a=Array.isArray(r.sessions)?r.sessions:[];$('archive-body').innerHTML=a.length?a.map(x=>`<tr><td>${escapeHtml(dateFmt(x.session_started_at||x.first_signal_at))}</td><td>${x.signals??0}</td><td class="text-emerald-300">${x.wins??0}</td><td class="text-rose-300">${x.losses??0}</td><td>${fmt(x.winrate??0,1)}%</td><td title="${escapeHtml(x.session_id)}">${escapeHtml(String(x.session_id||'').slice(0,8))}…</td></tr>`).join(''):'<tr><td colspan="6" class="skeleton">Nenhuma sessão arquivada.</td></tr>'}catch(e){$('archive-body').innerHTML=`<tr><td colspan="6">${escapeHtml(e.message)}</td></tr>`}}
+  $('archive-refresh').addEventListener('click',refreshArchive);
+  async function searchArchive(){
+    const params=new URLSearchParams({limit:'500'});
+    const asset=$('archive-asset').value.trim(),result=$('archive-result').value,from=$('archive-from').value,to=$('archive-to').value;
+    if(asset)params.set('asset',asset);if(result)params.set('result',result);if(from)params.set('date_from',from);if(to)params.set('date_to',to);
+    try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction||'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(res)}">${escapeHtml(res)}</td><td>${escapeHtml(tradeExecutionLabel(x))}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
+  }
+  $('archive-search').addEventListener('click',searchArchive);
+  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory(),refreshArchive()])}
   function startPolling(){
+    if(!authenticated)return;
     stopPolling();
-    pollTimers=[setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
+    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
   }
   function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
-  restoreSession();
+  updateRobotUI();
+  checkAuth().then(ok=>{if(ok){refreshAll().then(startPolling)}});
   if(window.lucide)lucide.createIcons();
 })();
 </script>
