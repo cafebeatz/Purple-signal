@@ -34,16 +34,7 @@ def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     return line, signal_line, line - signal_line
 
 
-def didi_index(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14):
-    up = high.diff()
-    down = -low.diff()
-    plus_dm = up.where((up > down) & (up > 0), 0.0)
-    minus_dm = down.where((down > up) & (down > 0), 0.0)
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, adjust=False, min_periods=period).mean().replace(0, np.nan)
-    plus_di = 100 * plus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean() / atr
-    minus_di = 100 * minus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean() / atr
-    return plus_di.fillna(0), minus_di.fillna(0)
+
 
 
 def kdj(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 9):
@@ -270,7 +261,7 @@ def analyze_candles(candles: list[dict]) -> dict:
         "adx_status": "FORTE" if adx_value >= 25 else ("MODERADO" if adx_value >= 20 else "FRACO"),
         "di_plus": round(dp, 2),
         "di_minus": round(dm, 2),
-        "didi_status": "AGULHADA COMPRA" if di_cross_up else ("AGULHADA VENDA" if di_cross_down else ("DI+ > DI-" if di_bull else "DI- > DI+")),
+      
         "entry_confirmations": int(confirm_count),
         "brain_score": int(brain_score),
         "absorption_source": "ESTIMADO_OHLCV",
