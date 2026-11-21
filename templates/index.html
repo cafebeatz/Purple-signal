@@ -317,7 +317,7 @@
     $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
     $('hero-timeframe').textContent=$('timeframe').value;
     const ind=x.indicators||x.analysis||null;
-    $('indicator-details').textContent=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
+    $('indicator-details').innerHTML=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   function updateCandleCountdown(){if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));$('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0')}
