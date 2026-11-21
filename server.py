@@ -1,6 +1,6 @@
 """
-Backend FastAPI - Gerador de Sinais IQ Option / PolariumBroker.
-Estratégia: MA9 x MA21 (direção) + MACD cruzamento (gatilho) + RSI + Agulhada do Didi (confirmação).
+Backend FastAPI - Purple Signal.
+Estratégia: fluxo estimado como direção principal + tendência + KDJ + confirmações técnicas; estrutura de topos/fundos e suporte/resistência usada internamente.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ import bcrypt
 import pandas as pd
 import jwt
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
@@ -45,13 +46,6 @@ JWT_ALG = "HS256"
 ACCESS_MIN = 60 * 24  # 24h
 
 app = FastAPI(title="Purple Signal Analyst")
-@app.get("/", include_in_schema=False)
-def index():
-    from pathlib import Path
-    from fastapi.responses import FileResponse
-
-    html_file = Path(__file__).resolve().parent / "index.html"
-    return FileResponse(html_file)
 api = APIRouter(prefix="/api")
 
 
@@ -155,6 +149,7 @@ def _state(user_id: str) -> dict:
             "best": None,
             "ranking": [],
             "candles": {},
+            "last_signal_candle": {},
             "message": "Aguardando início do scanner",
         },
     )
@@ -170,6 +165,7 @@ def _signal_doc(user_id: str, best: dict, tf: str, session: BrokerSession) -> di
         "confidence": best["confidence"],
         "price": best["price"],
         "timeframe": tf,
+        "candle_ts": best.get("candle_ts"),
         "broker": session.broker,
         "simulated": session.simulated,
         "account_type": session.account_type,
@@ -207,12 +203,22 @@ async def _scan_loop(user_id: str) -> None:
         try:
             tf = state["timeframe"]
             all_candles = await get_candles_many(session, session.assets, tf, count=120)
-            state["candles"] = all_candles
+            tf_seconds = TIMEFRAME_SECONDS[tf]
+            now_ts = int(datetime.now(timezone.utc).timestamp())
             results = []
+            closed_candles = {}
             for asset, candles in all_candles.items():
-                analysis = analyze_candles(candles)
+                # A vela só entra na estratégia depois do seu intervalo completo.
+                # O timestamp do provedor é tratado como horário de abertura da vela.
+                closed = [c for c in candles if int(c.get("ts", 0)) + tf_seconds <= now_ts]
+                if not closed:
+                    continue
+                closed_candles[asset] = closed
+                analysis = analyze_candles(closed)
                 if analysis.get("ready") and analysis["direction"] != "NEUTRO":
-                    results.append({"asset": asset, **analysis})
+                    results.append({"asset": asset, "candle_ts": int(closed[-1]["ts"]), **analysis})
+            # Mantém candles fechadas para o gráfico e para a liquidação por preço.
+            state["candles"] = closed_candles
 
             results.sort(key=lambda r: r["confidence"], reverse=True)
             state["ranking"] = results[:10]
@@ -221,13 +227,20 @@ async def _scan_loop(user_id: str) -> None:
             state["best"] = best
 
             if best and best["confidence"] >= state["min_confidence"]:
+                # Um único sinal por ativo e por vela fechada, mesmo que o loop
+                # consulte novamente os mesmos candles a cada poucos segundos.
+                last_candle = state["last_signal_candle"].get(best["asset"])
                 same = await db.signals.find_one({
                     "user_id": user_id, "asset": best["asset"],
-                    "direction": best["direction"], "result": "PENDENTE",
+                    "candle_ts": best["candle_ts"],
                 })
-                if not same:
+                if last_candle != best["candle_ts"] and not same:
                     doc = _signal_doc(user_id, best, tf, session)
-                    state["message"] = f"Novo sinal: {best['asset']} {best['direction']} ({best['confidence']}%)"
+                    state["last_signal_candle"][best["asset"]] = best["candle_ts"]
+                    state["message"] = (
+                        f"Vela M1 fechada — sinal: {best['asset']} "
+                        f"{best['direction']} ({best['confidence']}%)"
+                    )
                     if state["auto_trade"]:
                         await _auto_trade(state, session, doc)
                     await db.signals.insert_one(doc)
@@ -491,6 +504,10 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
 # -------- App setup --------
 app.include_router(api)
+
+# Serve a interface web na raiz sem interceptar as rotas /api/.
+FRONTEND_DIR = ROOT_DIR / "static"
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
 app.add_middleware(
     CORSMiddleware,
