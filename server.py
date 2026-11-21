@@ -3,29 +3,25 @@ Backend FastAPI - Gerador de Sinais IQ Option / PolariumBroker.
 Estratégia: MA9 x MA21 (direção) + MACD cruzamento (gatilho) + RSI + Agulhada do Didi (confirmação).
 """
 from __future__ import annotations
-
 from dotenv import load_dotenv
 from pathlib import Path
-
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = Path(__file__).resolve().parent
 load_dotenv(ROOT_DIR / ".env")
-
 import asyncio
 import logging
 import os
 import uuid
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
-
 import bcrypt
 import pandas as pd
 import jwt
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from pymongo import ASCENDING, DESCENDING, IndexModel
 from starlette.middleware.cors import CORSMiddleware
-
 from broker import (
     SIM_PAYOUT, TIMEFRAME_SECONDS, BrokerSession, check_trade, connect_broker, disconnect_broker,
     get_candles, get_candles_many, place_trade, refresh_balance,
@@ -35,18 +31,14 @@ from strategy import analyze_candles, sma
 # -------- Infra --------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("sinais")
-
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
-
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALG = "HS256"
 ACCESS_MIN = 60 * 24  # 24h
-
 app = FastAPI(title="Purple Signal Analyst")
 api = APIRouter(prefix="/api")
-
 
 # -------- Models --------
 class RegisterIn(BaseModel):
@@ -194,7 +186,6 @@ async def _scan_loop(user_id: str) -> None:
         state["running"] = False
         state["message"] = "Nenhuma corretora conectada"
         return
-
     logger.info("Scanner user=%s broker=%s simulado=%s", user_id, session.broker, session.simulated)
     while state["running"]:
         try:
@@ -206,13 +197,11 @@ async def _scan_loop(user_id: str) -> None:
                 analysis = analyze_candles(candles)
                 if analysis.get("ready") and analysis["direction"] != "NEUTRO":
                     results.append({"asset": asset, **analysis})
-
             results.sort(key=lambda r: r["confidence"], reverse=True)
             state["ranking"] = results[:10]
             state["last_scan_ts"] = datetime.now(timezone.utc).isoformat()
             best = results[0] if results else None
             state["best"] = best
-
             if best and best["confidence"] >= state["min_confidence"]:
                 same = await db.signals.find_one({
                     "user_id": user_id, "asset": best["asset"],
@@ -226,7 +215,6 @@ async def _scan_loop(user_id: str) -> None:
                     await db.signals.insert_one(doc)
             elif not results:
                 state["message"] = "Analisando mercado..."
-
             await _settle_pending(user_id, session)
             await asyncio.sleep(3.0)
         except asyncio.CancelledError:
@@ -240,7 +228,6 @@ async def _scan_loop(user_id: str) -> None:
         except Exception as e:  # noqa: BLE001
             logger.exception("Erro no scan loop: %s", e)
             await asyncio.sleep(2.0)
-
     logger.info("Scanner parado user=%s", user_id)
 
 
@@ -330,7 +317,7 @@ async def login(payload: LoginIn, response: Response):
     set_auth_cookie(response, token)
     return {
         "token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user.get("role", "user")},
+        "user": {"id": user["id"], "email": email, "name": user["name"], "role": user.get("role", "user")},
     }
 
 
@@ -383,7 +370,6 @@ async def broker_disconnect(user=Depends(get_current_user)):
     state["best"] = None
     state["ranking"] = []
     state["message"] = "Desconectado"
-
     session = _BROKER_SESSIONS.pop(user["id"], None)
     if session:
         disconnect_broker(session)
@@ -415,7 +401,6 @@ async def scan_start(payload: ScanStartIn, user=Depends(get_current_user)):
     state["auto_trade"] = payload.auto_trade
     state["amount"] = payload.amount
     state["message"] = "Iniciando varredura do mercado..."
-
     old = _SCAN_TASKS.get(user["id"])
     if old and not old.done():
         old.cancel()
@@ -485,6 +470,15 @@ async def chart(asset: str, user=Depends(get_current_user)):
 # -------- App setup --------
 app.include_router(api)
 
+
+@app.get("/", include_in_schema=False)
+async def home():
+    index_file = ROOT_DIR / "index.html"
+    if not index_file.is_file():
+        raise HTTPException(status_code=404, detail="index.html não encontrado no diretório do servidor")
+    return FileResponse(index_file, media_type="text/html")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -492,7 +486,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 INDEXES: dict[str, list[IndexModel]] = {
     "users": [IndexModel([("email", ASCENDING)], unique=True, name="email_unique"),
