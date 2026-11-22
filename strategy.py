@@ -1,6 +1,8 @@
-"""Purple Signal — fluxo como direção principal, tendência e KDJ como confirmações.
-A leitura de fluxo é uma estimativa baseada em OHLCV (corpo/range ponderado por volume),
-pois a integração atual não fornece agressão bid/ask nem livro de ofertas.
+"""Purple Signal - núcleo direcional por tendência, fluxo e estrutura.
+
+Compatível com o contrato usado pelo server.py: analyze_candles(candles)
+retorna ready, direction, confidence e indicadores.
+O fluxo é estimado por OHLCV; não representa agressão bid/ask real.
 """
 from __future__ import annotations
 from typing import Literal
@@ -32,16 +34,7 @@ def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     return line, signal_line, line - signal_line
 
 
-def didi_index(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14):
-    up = high.diff()
-    down = -low.diff()
-    plus_dm = up.where((up > down) & (up > 0), 0.0)
-    minus_dm = down.where((down > up) & (down > 0), 0.0)
-    tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, adjust=False, min_periods=period).mean().replace(0, np.nan)
-    plus_di = 100 * plus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean() / atr
-    minus_di = 100 * minus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean() / atr
-    return plus_di.fillna(0), minus_di.fillna(0)
+
 
 
 def kdj(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 9):
@@ -104,6 +97,9 @@ def _hidden_structure_confluence(df: pd.DataFrame, direction: str, atr_value: fl
     return 0, "NONE"
 
 
+Direction = Literal["CALL", "PUT", "NEUTRO"]
+
+
 def _adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14):
     """ADX clássico suavizado por Wilder, acompanhado de DI+ e DI-."""
     up = high.diff()
@@ -130,17 +126,17 @@ def _flow_diagnostics(df: pd.DataFrame, atr_value: float, window: int = 20) -> d
     recent = df.tail(window).copy()
     spread = (recent.high - recent.low).replace(0, np.nan)
     body_ratio = ((recent.close - recent.open).abs() / spread).clip(0, 1).fillna(0)
-    volume = pd.to_numeric(
-        recent.get("volume", pd.Series(0, index=recent.index)),
-        errors="coerce",
-    ).fillna(0).clip(lower=0)
+    volume = pd.to_numeric(recent.get("volume", pd.Series(0, index=recent.index)), errors="coerce").fillna(0).clip(lower=0)
     vol_ref = float(volume.median()) if len(volume) else 0.0
     last_vol = float(volume.iloc[-1]) if len(volume) else 0.0
     last_body = float(body_ratio.iloc[-1]) if len(body_ratio) else 0.0
     volume_ratio = last_vol / vol_ref if vol_ref > 0 else 0.0
+
+    # Volume elevado com corpo pequeno sugere absorção, mas OHLCV não revela o lado agressor.
     absorption = bool(vol_ref > 0 and volume_ratio >= 1.5 and last_body <= 0.30)
     last_range = float(spread.iloc[-1]) if len(spread) and pd.notna(spread.iloc[-1]) else 0.0
     displacement_atr = last_range / atr_value if atr_value > 0 else 0.0
+    # Impacto relativo: deslocamento da vela em relação ao volume típico.
     impact = (last_range / atr_value) / max(volume_ratio, 0.25) if atr_value > 0 else 0.0
     return {
         "absorption_detected": absorption,
@@ -152,84 +148,18 @@ def _flow_diagnostics(df: pd.DataFrame, atr_value: float, window: int = 20) -> d
     }
 
 
-def _flow_components(df: pd.DataFrame, window: int = 12) -> dict:
-    """Quatro proxies direcionais separados, calculados apenas com OHLCV."""
-    recent = df.tail(window).copy()
-    spread = (recent.high - recent.low).replace(0, np.nan)
-    body_pressure = ((recent.close - recent.open) / spread).clip(-1, 1).fillna(0.0)
-
-    volume = pd.to_numeric(
-        recent.get("volume", pd.Series(0.0, index=recent.index)),
-        errors="coerce",
-    ).fillna(0.0).clip(lower=0.0)
-
-    # 1) Fluxo dos candles: pressão média dos corpos, sem ponderar por volume.
-    candle_flow = float(body_pressure.mean()) if len(body_pressure) else 0.0
-
-    # 2) Volume dos candles: pressão dos corpos ponderada pelo volume negociado.
-    if float(volume.sum()) > 0:
-        candle_volume_flow = float((body_pressure * volume).sum() / volume.sum())
-    else:
-        candle_volume_flow = candle_flow
-
-    # 3) Fluxo de mercado: deslocamento líquido do preço no período, normalizado
-    # pelo caminho percorrido. Evita que uma única vela defina todo o movimento.
-    close_change = recent.close.diff().fillna(0.0)
-    path = float(close_change.abs().sum())
-    market_flow = float(close_change.sum() / path) if path > 0 else 0.0
-
-    # 4) Volume de mercado: desequilíbrio estimado entre volume em barras de alta
-    # e de baixa. Sem dados de agressão, é apenas um proxy de volume direcional.
-    bar_direction = np.sign(close_change)
-    signed_volume = float((bar_direction * volume).sum())
-    market_volume_flow = signed_volume / float(volume.sum()) if float(volume.sum()) > 0 else market_flow
-
-    values = {
-        "market_flow": float(np.clip(market_flow, -1.0, 1.0)),
-        "candle_flow": float(np.clip(candle_flow, -1.0, 1.0)),
-        "candle_volume_flow": float(np.clip(candle_volume_flow, -1.0, 1.0)),
-        "market_volume_flow": float(np.clip(market_volume_flow, -1.0, 1.0)),
-    }
-    votes = [1 if value >= 0.08 else (-1 if value <= -0.08 else 0) for value in values.values()]
-    bullish = sum(v == 1 for v in votes)
-    bearish = sum(v == -1 for v in votes)
-    # Exige maioria clara entre as quatro leituras para estabelecer direção.
-    direction = "CALL" if bullish >= 3 else ("PUT" if bearish >= 3 else "NEUTRO")
-    composite = float(np.mean(list(values.values())))
-    strength = min(100, int(abs(composite) * 100))
-    return {
-        **values,
-        "direction": direction,
-        "pressure": composite,
-        "strength": strength,
-        "bullish_votes": bullish,
-        "bearish_votes": bearish,
-    }
-
-
-Direction = Literal["CALL", "PUT", "NEUTRO"]
-
-
 def analyze_candles(candles: list[dict]) -> dict:
-    """Analisa velas fechadas mantendo assinatura e contrato do servidor."""
+    """Analisa velas fechadas mantendo a assinatura e o contrato do servidor."""
     if not isinstance(candles, (list, tuple)) or len(candles) < 50:
         return {"ready": False, "reason": "Candles insuficientes"}
-
     df = pd.DataFrame(candles).copy()
     for col in ("open", "high", "low", "close"):
         if col not in df:
             return {"ready": False, "reason": f"Campo obrigatório ausente: {col}"}
         df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    if "volume" not in df:
-        df["volume"] = 0.0
-    df["volume"] = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0).clip(lower=0.0)
     df = df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
-
-    valid = (
-        (df.high >= df[["open", "close", "low"]].max(axis=1))
-        & (df.low <= df[["open", "close", "high"]].min(axis=1))
-    )
+    # Descarta velas estruturalmente inválidas sem alterar o formato de entrada.
+    valid = (df.high >= df[["open", "close", "low"]].max(axis=1)) & (df.low <= df[["open", "close", "high"]].min(axis=1))
     df = df.loc[valid].reset_index(drop=True)
     if len(df) < 50:
         return {"ready": False, "reason": "Candles válidos insuficientes"}
@@ -242,139 +172,65 @@ def analyze_candles(candles: list[dict]) -> dict:
     adx_series, plus_di, minus_di, atr = _adx(high, low, close, 14)
     i, ip = len(df) - 1, len(df) - 2
 
-    price = float(close.iloc[i])
+    flow = _estimated_flow(df)
+    flow_direction = "CALL" if flow >= 0.08 else ("PUT" if flow <= -0.08 else "NEUTRO")
+    flow_strength = min(100, int(abs(flow) * 100))
+
     atr_value = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else 0.0
-    ma9_value, ma21_value = float(ma9.iloc[i]), float(ma21.iloc[i])
     adx_value = float(adx_series.iloc[i])
     dp, dm = float(plus_di.iloc[i]), float(minus_di.iloc[i])
-    rsi_value = float(rsi14.iloc[i])
+    price = float(close.iloc[i])
+    ema_spread_atr = abs(float(ma9.iloc[i]) - float(ma21.iloc[i])) / atr_value if atr_value > 0 else 0.0
+    ema_slope_atr = abs(float(ma9.iloc[i]) - float(ma9.iloc[i - 3])) / atr_value if atr_value > 0 else 0.0
 
-    # NÚCLEO 1: quatro leituras independentes estimadas a partir de OHLCV.
-    flow_data = _flow_components(df)
-    direction: Direction = flow_data["direction"]
-    flow_direction = direction
-    flow = flow_data["pressure"]
-    flow_strength = flow_data["strength"]
-
-    # EMAs não determinam direção. São somente uma confirmação adicional.
-    ma_bull = ma9_value > ma21_value and ma9_value > float(ma9.iloc[i - 3])
-    ma_bear = ma9_value < ma21_value and ma9_value < float(ma9.iloc[i - 3])
-    ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
-
-    ema_spread_atr = abs(ma9_value - ma21_value) / atr_value if atr_value > 0 else 0.0
-    ema_slope_atr = abs(ma9_value - float(ma9.iloc[i - 3])) / atr_value if atr_value > 0 else 0.0
-    sideways = bool(adx_value < 16)
-    trend_strength = (
-        "FORTE" if adx_value >= 25 else
-        "MODERADA" if adx_value >= 20 else
-        "FRACA" if adx_value >= 16 else
-        "LATERAL"
-    )
-
-    # Confirmações direcionais. RSI 80/20 identifica extremos; não inverte sinal.
-    macd_bull = (
-        float(macd_line.iloc[i]) > float(macd_signal.iloc[i])
-        and float(macd_hist.iloc[i]) >= float(macd_hist.iloc[ip])
-    )
-    macd_bear = (
-        float(macd_line.iloc[i]) < float(macd_signal.iloc[i])
-        and float(macd_hist.iloc[i]) <= float(macd_hist.iloc[ip])
-    )
-    rsi_bull = 50 < rsi_value < 80
-    rsi_bear = 20 < rsi_value < 50
-    di_bull, di_bear = dp > dm, dm > dp
-    adx_confirms = adx_value >= 16
+    # Tendência exige alinhamento e inclinação; lateralização é detectada separadamente.
+    ma_bull = ma9.iloc[i] > ma21.iloc[i] and ma9.iloc[i] > ma9.iloc[i - 3]
+    ma_bear = ma9.iloc[i] < ma21.iloc[i] and ma9.iloc[i] < ma9.iloc[i - 3]
+    trend = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
+    sideways = bool(adx_value < 16 or (adx_value < 20 and ema_spread_atr < 0.16 and ema_slope_atr < 0.12))
+    trend_strength = "FORTE" if adx_value >= 25 else ("MODERADA" if adx_value >= 20 else ("FRACA" if adx_value >= 16 else "LATERAL"))
 
     k_now, d_now, j_now = float(k.iloc[i]), float(d.iloc[i]), float(j.iloc[i])
     kdj_bull = k_now > d_now and j_now > float(j.iloc[ip])
     kdj_bear = k_now < d_now and j_now < float(j.iloc[ip])
     kdj_direction = "CALL" if kdj_bull else ("PUT" if kdj_bear else "NEUTRO")
 
-    confirms_for = {
-        "CALL": [macd_bull, rsi_bull, di_bull, adx_confirms, kdj_bull, ma_bull],
-        "PUT": [macd_bear, rsi_bear, di_bear, adx_confirms, kdj_bear, ma_bear],
-    }
-    confirm_count = sum(bool(x) for x in confirms_for[direction]) if direction != "NEUTRO" else 0
+    direction: Direction = "NEUTRO"
+    if not sideways and flow_direction != "NEUTRO" and flow_direction == trend:
+        direction = flow_direction
 
-    # NÚCLEO 2: retorno à média pela EMA21. A distância mínima é 1 ATR.
-    # Exige candle de reversão e pelo menos duas confirmações independentes.
-    distance_from_ema21_atr = (
-        (price - ma21_value) / atr_value if atr_value > 0 else 0.0
-    )
-    previous_price = float(close.iloc[ip])
-    last_open = float(df.open.iloc[i])
-    last_close = float(df.close.iloc[i])
-    last_high = float(df.high.iloc[i])
-    last_low = float(df.low.iloc[i])
-    candle_range = max(last_high - last_low, 1e-12)
-    lower_wick = min(last_open, last_close) - last_low
-    upper_wick = last_high - max(last_open, last_close)
-    bullish_reversal_candle = (
-        last_close > last_open
-        and (lower_wick / candle_range >= 0.25 or last_close > previous_price)
-    )
-    bearish_reversal_candle = (
-        last_close < last_open
-        and (upper_wick / candle_range >= 0.25 or last_close < previous_price)
-    )
-
-    mean_reversion_direction = "NEUTRO"
-    mean_reversion_confirmations = 0
-    if atr_value > 0 and distance_from_ema21_atr <= -1.0 and bullish_reversal_candle:
-        mean_reversion_confirmations = sum(
-            [macd_bull, rsi_value < 50, di_bull, kdj_bull]
-        )
-        if mean_reversion_confirmations >= 2:
-            mean_reversion_direction = "CALL"
-    elif atr_value > 0 and distance_from_ema21_atr >= 1.0 and bearish_reversal_candle:
-        mean_reversion_confirmations = sum(
-            [macd_bear, rsi_value > 50, di_bear, kdj_bear]
-        )
-        if mean_reversion_confirmations >= 2:
-            mean_reversion_direction = "PUT"
-
-    signal_mode = "FLOW"
-    if mean_reversion_direction != "NEUTRO":
-        # A reversão só prevalece quando o núcleo de fluxo está neutro ou alinhado.
-        if direction == "NEUTRO" or direction == mean_reversion_direction:
-            direction = mean_reversion_direction
-            signal_mode = "MEAN_REVERSION"
-            confirm_count = mean_reversion_confirmations
-
-    # Indicadores confirmam, mas não podem trocar CALL por PUT ou vice-versa.
+    macd_bull = float(macd_line.iloc[i]) > float(macd_signal.iloc[i]) and float(macd_hist.iloc[i]) >= float(macd_hist.iloc[ip])
+    macd_bear = float(macd_line.iloc[i]) < float(macd_signal.iloc[i]) and float(macd_hist.iloc[i]) <= float(macd_hist.iloc[ip])
+    rsi_value = float(rsi14.iloc[i])
+    rsi_bull = 50 < rsi_value < 75
+    rsi_bear = 25 < rsi_value < 50
+    di_bull, di_bear = dp > dm, dm > dp
+    adx_confirms = adx_value >= 16
+    confirms = ([macd_bull, rsi_bull, di_bull, adx_confirms, kdj_direction == "CALL"] if direction == "CALL" else
+                [macd_bear, rsi_bear, di_bear, adx_confirms, kdj_direction == "PUT"] if direction == "PUT" else [])
+    confirm_count = sum(bool(x) for x in confirms)
     if direction != "NEUTRO" and confirm_count < 2:
         direction = "NEUTRO"
 
     diagnostics = _flow_diagnostics(df, atr_value)
-    last_candle_direction = (
-        "CALL" if last_close > last_open else
-        "PUT" if last_close < last_open else
-        "NEUTRO"
-    )
-    absorption_conflict = (
-        diagnostics["absorption_detected"]
-        and direction != "NEUTRO"
-        and last_candle_direction not in ("NEUTRO", direction)
-    )
-    structure_bonus, _private_structure_tag = _hidden_structure_confluence(
-        df, direction, atr_value
-    )
+    # Absorção contrária ao fluxo reduz confiança e pode neutralizar um sinal frágil.
+    last_candle_direction = "CALL" if close.iloc[i] > df.open.iloc[i] else ("PUT" if close.iloc[i] < df.open.iloc[i] else "NEUTRO")
+    absorption_conflict = diagnostics["absorption_detected"] and last_candle_direction not in ("NEUTRO", direction)
+    structure_bonus, _private_structure_tag = _hidden_structure_confluence(df, direction, atr_value)
 
+    # Pontuação interna do Cérebro: qualidade das condições atuais, sem alegar treino histórico.
     brain_score = 0
     if direction != "NEUTRO":
-        brain_score = 35 + min(20, flow_strength // 3) + min(25, confirm_count * 5)
+        brain_score = 35 + min(20, flow_strength // 3) + min(20, confirm_count * 5)
         brain_score += 10 if adx_value >= 25 else (5 if adx_value >= 20 else 0)
         brain_score += structure_bonus
         brain_score -= 15 if absorption_conflict else 0
         brain_score -= 10 if diagnostics["absorption_detected"] else 0
-        if signal_mode == "MEAN_REVERSION":
-            brain_score += 3
         brain_score = max(0, min(97, brain_score))
         if absorption_conflict and brain_score < 65:
             direction = "NEUTRO"
 
     confidence = int(brain_score) if direction != "NEUTRO" else 0
-
     macd_cross_up = float(macd_line.iloc[ip]) <= float(macd_signal.iloc[ip]) and macd_bull
     macd_cross_down = float(macd_line.iloc[ip]) >= float(macd_signal.iloc[ip]) and macd_bear
     di_cross_up = float(plus_di.iloc[ip]) <= float(minus_di.iloc[ip]) and di_bull
@@ -385,61 +241,32 @@ def analyze_candles(candles: list[dict]) -> dict:
         "flow_pressure": round(flow, 3),
         "flow_strength": flow_strength,
         "flow_source": "ESTIMADO_OHLCV",
-        "market_flow": round(flow_data["market_flow"], 3),
-        "candle_flow": round(flow_data["candle_flow"], 3),
-        "candle_volume_flow": round(flow_data["candle_volume_flow"], 3),
-        "market_volume_flow": round(flow_data["market_volume_flow"], 3),
-        "flow_bullish_votes": int(flow_data["bullish_votes"]),
-        "flow_bearish_votes": int(flow_data["bearish_votes"]),
-        "trend_direction": ema_direction,
+        "trend_direction": trend,
         "trend_strength": trend_strength,
         "sideways_market": sideways,
         "ema_spread_atr": round(ema_spread_atr, 3),
         "ema_slope_atr": round(ema_slope_atr, 3),
-        "ema9": round(ma9_value, 6),
-        "ema21": round(ma21_value, 6),
-        "ema_confirmation": ema_direction,
         "kdj_k": round(k_now, 2),
         "kdj_d": round(d_now, 2),
         "kdj_j": round(j_now, 2),
         "kdj_direction": kdj_direction,
+        "ema9": round(float(ma9.iloc[i]), 6),
+        "ema21": round(float(ma21.iloc[i]), 6),
         "macd": round(float(macd_line.iloc[i]), 6),
         "macd_signal": round(float(macd_signal.iloc[i]), 6),
-        "macd_status": (
-            "COMPRA" if macd_cross_up else
-            "VENDA" if macd_cross_down else
-            "ALTA" if macd_bull else "BAIXA"
-        ),
+        "macd_status": "COMPRA" if macd_cross_up else ("VENDA" if macd_cross_down else ("ALTA" if macd_bull else "BAIXA")),
         "rsi": round(rsi_value, 2),
-        "rsi_status": (
-            "SOBRECOMPRA" if rsi_value >= 80 else
-            "SOBREVENDA" if rsi_value <= 20 else
-            "COMPRA" if rsi_bull else
-            "VENDA" if rsi_bear else "NEUTRO"
-        ),
-        "rsi_period": 14,
-        "rsi_overbought": 80,
-        "rsi_oversold": 20,
+        "rsi_status": "COMPRA" if rsi_bull else ("VENDA" if rsi_bear else "NEUTRO"),
         "adx": round(adx_value, 2),
         "adx_status": "FORTE" if adx_value >= 25 else ("MODERADO" if adx_value >= 20 else "FRACO"),
         "di_plus": round(dp, 2),
         "di_minus": round(dm, 2),
-        "didi_status": (
-            "AGULHADA COMPRA" if di_cross_up else
-            "AGULHADA VENDA" if di_cross_down else
-            "DI+ > DI-" if di_bull else "DI- > DI+"
-        ),
+      
         "entry_confirmations": int(confirm_count),
         "brain_score": int(brain_score),
-        "signal_mode": signal_mode if direction != "NEUTRO" else "NONE",
-        "mean_reversion_direction": mean_reversion_direction,
-        "mean_reversion_distance_atr": round(distance_from_ema21_atr, 3),
-        "mean_reversion_threshold_atr": 1.0,
-        "mean_reversion_confirmations": int(mean_reversion_confirmations),
         "absorption_source": "ESTIMADO_OHLCV",
         **diagnostics,
     }
-
     return {
         "ready": True,
         "direction": direction,
