@@ -252,7 +252,7 @@ def analyze_candles(candles: list[dict]) -> dict:
         return {"ready": False, "reason": "Candles válidos insuficientes"}
 
     close, high, low = df.close, df.high, df.low
-    ma9, ma21, ma200 = ema(close, 9), ema(close, 21), ema(close, 200)
+    ma9, ma21, ma100 = ema(close, 9), ema(close, 21), ema(close, 100)
     macd_line, macd_signal, macd_hist = macd(close)
     rsi14 = rsi(close, 14)
     k, d, j = kdj(high, low, close, 9)
@@ -261,7 +261,7 @@ def analyze_candles(candles: list[dict]) -> dict:
 
     price = float(close.iloc[i])
     atr_value = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else 0.0
-    ma9_value, ma21_value, ma200_value = float(ma9.iloc[i]), float(ma21.iloc[i]), float(ma200.iloc[i])
+    ma9_value, ma21_value, ma100_value = float(ma9.iloc[i]), float(ma21.iloc[i]), float(ma100.iloc[i])
     adx_value = float(adx_series.iloc[i])
     dp, dm = float(plus_di.iloc[i]), float(minus_di.iloc[i])
     rsi_value = float(rsi14.iloc[i])
@@ -295,13 +295,13 @@ def analyze_candles(candles: list[dict]) -> dict:
     ma_bull = ma9_value > ma21_value and ma9_value > float(ma9.iloc[i - 3])
     ma_bear = ma9_value < ma21_value and ma9_value < float(ma9.iloc[i - 3])
     ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
-    ema200_direction = (
-        "CALL" if price > ma200_value and ma200_value >= float(ma200.iloc[i - 3]) else
-        "PUT" if price < ma200_value and ma200_value <= float(ma200.iloc[i - 3]) else
+    ema100_direction = (
+        "CALL" if price > ma100_value and ma100_value >= float(ma100.iloc[i - 3]) else
+        "PUT" if price < ma100_value and ma100_value <= float(ma100.iloc[i - 3]) else
         "NEUTRO"
     )
-    ema200_bull = ema200_direction == "CALL"
-    ema200_bear = ema200_direction == "PUT"
+    ema100_bull = ema100_direction == "CALL"
+    ema100_bear = ema100_direction == "PUT"
 
     ema_spread_atr = abs(ma9_value - ma21_value) / atr_value if atr_value > 0 else 0.0
     ema_slope_atr = abs(ma9_value - float(ma9.iloc[i - 3])) / atr_value if atr_value > 0 else 0.0
@@ -340,8 +340,8 @@ def analyze_candles(candles: list[dict]) -> dict:
     kdj_direction = "CALL" if kdj_bull else ("PUT" if kdj_bear else "NEUTRO")
 
     confirms_for = {
-        "CALL": [macd_bull, rsi_bull, di_bull, adx_confirms, kdj_bull, ma_bull, ema200_bull],
-        "PUT": [macd_bear, rsi_bear, di_bear, adx_confirms, kdj_bear, ma_bear, ema200_bear],
+        "CALL": [macd_bull, rsi_bull, di_bull, adx_confirms, kdj_bull, ma_bull, ema100_bull],
+        "PUT": [macd_bear, rsi_bear, di_bear, adx_confirms, kdj_bear, ma_bear, ema100_bear],
     }
     confirm_count = sum(bool(x) for x in confirms_for[direction]) if direction != "NEUTRO" else 0
 
@@ -482,7 +482,7 @@ def analyze_candles(candles: list[dict]) -> dict:
             entry_filter_reasons.append("VOLATILIDADE_BAIXA")
         if volatility_spike:
             entry_filter_reasons.append("PICO_DE_VOLATILIDADE")
-        if adx_value >= 25 and ema200_direction not in ("NEUTRO", direction):
+        if adx_value >= 25 and ema100_direction not in ("NEUTRO", direction):
             entry_filter_reasons.append("EMA200_CONTRA_TENDENCIA_FORTE")
 
         if entry_filter_reasons:
@@ -528,10 +528,10 @@ def analyze_candles(candles: list[dict]) -> dict:
         "ema_slope_atr": round(ema_slope_atr, 3),
         "ema9": round(ma9_value, 6),
         "ema21": round(ma21_value, 6),
-        "ema200": round(ma200_value, 6),
+        "ema100": round(ma100_value, 6),
         "ema_confirmation": ema_direction,
-        "ema200_direction": ema200_direction,
-        "ema200_filter": ema200_direction,
+        "ema100_direction": ema100_direction,
+        "ema100_filter": ema100_direction,
         "kdj_k": round(k_now, 2),
         "kdj_d": round(d_now, 2),
         "kdj_j": round(j_now, 2),
