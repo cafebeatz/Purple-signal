@@ -34,7 +34,8 @@ class BrokerSession:
     balance: float = 10000.0
     currency: str = "USD"
     message: str = ""
-    assets: list[str] = field(default_factory=lambda: list(DEFAULT_ASSETS))
+    assets: list[str] = field(default_factory=list)
+    market_assets: dict[str, list[str]] = field(default_factory=lambda: {"open": [], "otc": []})
     proc: Optional[object] = field(default=None, repr=False)
     conn: Optional[object] = field(default=None, repr=False)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -68,11 +69,25 @@ def _kill(session: BrokerSession) -> None:
     session.conn = None
 def _broker_name(broker: str) -> str:
     return "Polarium Broker" if broker == "polarium" else "IQ Option"
+def market_type_for_asset(asset: str) -> str:
+    """Classificação operacional: OTC pelo nome; demais ativos são mercado regular."""
+    return "otc" if "OTC" in str(asset).upper() else "open"
+
+
+def split_assets_by_market(assets: list[str]) -> dict[str, list[str]]:
+    grouped = {"open": [], "otc": []}
+    for asset in sorted(set(str(a).strip() for a in assets if str(a).strip())):
+        grouped[market_type_for_asset(asset)].append(asset)
+    return grouped
+
+
 async def connect_broker(broker: str, email: str, password: str, account_type: str, simulate: bool = False) -> BrokerSession:
     session = BrokerSession(broker=broker, email=email, account_type=account_type)
     if simulate:
+        session.assets = list(DEFAULT_ASSETS)
+        session.market_assets = split_assets_by_market(session.assets)
         session.connected = True
-        session.message = "Modo simulado escolhido pelo usuário"
+        session.message = "Modo simulado escolhido pelo usuário (mercado aberto + OTC sintéticos)"
         return session
     parent, child = _CTX.Pipe()
     proc = _CTX.Process(target=worker_main, args=(child, broker, email, password, account_type), daemon=True)
@@ -88,26 +103,34 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
         session.simulated = False
         session.balance = res["balance"]
         session.currency = res["currency"]
-        if res.get("assets"):
-            # Prioriza mercado aberto, mas mantém OTC na lista quando houver espaço.
-            ordered_assets = sorted(
-                set(res["assets"]),
-                key=lambda asset: ("OTC" in asset.upper(), asset)
-            )
-            session.assets = ordered_assets[:MAX_REAL_ASSETS]
-            open_count = sum("OTC" not in asset.upper() for asset in session.assets)
-            otc_count = len(session.assets) - open_count
-            logger.info(
-                "Ativos carregados de %s: total=%d, mercado_aberto=%d, otc=%d, limite=%d",
-                _broker_name(broker), len(session.assets), open_count, otc_count,
-                MAX_REAL_ASSETS
+        # Usa somente ativos confirmados pela API da corretora; sem fallback misto.
+        supplied_groups = res.get("assets_by_market") or {}
+        if supplied_groups:
+            grouped = split_assets_by_market(
+                list(supplied_groups.get("open") or []) +
+                list(supplied_groups.get("otc") or [])
             )
         else:
-            logger.warning(
-                "A corretora %s não retornou ativos; mantendo lista padrão.",
-                _broker_name(broker)
+            grouped = split_assets_by_market(list(res.get("assets") or []))
+
+        # Limite independente por mercado para preservar espaço para os dois.
+        session.market_assets = {
+            "open": grouped["open"][:MAX_REAL_ASSETS],
+            "otc": grouped["otc"][:MAX_REAL_ASSETS],
+        }
+        session.assets = session.market_assets["open"] + session.market_assets["otc"]
+        logger.info(
+            "Ativos confirmados de %s: total=%d, mercado_aberto=%d, otc=%d",
+            _broker_name(broker), len(session.assets),
+            len(session.market_assets["open"]), len(session.market_assets["otc"])
+        )
+        if not session.assets:
+            session.message = (
+                f"Conectado à {_broker_name(broker)}, mas a API não confirmou ativos. "
+                "Scanner bloqueado para evitar usar uma lista fictícia."
             )
-        session.message = f"Conectado à {_broker_name(broker)} ({account_type.upper()})"
+        else:
+            session.message = f"Conectado à {_broker_name(broker)} ({account_type.upper()})"
         return session
     _kill(session)
     msg = str(res.get("error", ""))
@@ -172,6 +195,8 @@ async def get_candles_many(session: BrokerSession, assets: list[str], timeframe:
 async def get_candles(session: BrokerSession, asset: str, timeframe: str, count: int = 120) -> list[dict]:
     return (await get_candles_many(session, [asset], timeframe, count)).get(asset, [])
 async def place_trade(session: BrokerSession, asset: str, direction: str, amount: float, timeframe: str) -> str:
+    if asset not in session.assets:
+        raise ValueError(f"Ativo {asset} não foi confirmado na lista da corretora.")
     if session.simulated:
         if amount > session.balance:
             raise ValueError("Saldo simulado insuficiente")
