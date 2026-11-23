@@ -452,7 +452,8 @@
   async function refreshChart(){
     if(!selectedAsset||selectedAsset==='—')return;
     try{
-      const type=selectedSignal?getMarketType(selectedSignal):(selectedAsset.toUpperCase().includes('OTC')?'otc':'open');\n      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset)+'&market_type='+encodeURIComponent(type));
+      const type=selectedSignal?getMarketType(selectedSignal):(selectedAsset.toUpperCase().includes('OTC')?'otc':'open');
+      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset)+'&market_type='+encodeURIComponent(type));
       const candles=Array.isArray(data.candles)?data.candles:[];
       const c=candles[candles.length-1];
       $('chart-source').textContent=selectedAsset+' · '+marketLabel(data.market_type||type)+' · '+(data.timeframe||$('timeframe').value);
