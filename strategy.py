@@ -591,8 +591,15 @@ def analyze_candles(candles: list[dict]) -> dict:
 
     signal_mode = "FLOW"
     if mean_reversion_direction != "NEUTRO":
-        # A reversão só prevalece quando o núcleo de fluxo está neutro ou alinhado.
-        if direction == "NEUTRO" or direction == mean_reversion_direction:
+        # Reversão pode contrariar a tendência principal, mas não um fluxo
+        # estimado fortemente oposto. Fluxo OHLCV fraco/neutro não veta o setup.
+        reversal_sign = 1.0 if mean_reversion_direction == "CALL" else -1.0
+        strong_opposing_flow = flow * reversal_sign <= -0.35
+        if (
+            direction == "NEUTRO"
+            or direction == mean_reversion_direction
+            or not strong_opposing_flow
+        ):
             direction = mean_reversion_direction
             signal_mode = "MEAN_REVERSION"
             confirm_count = mean_reversion_confirmations
@@ -638,25 +645,68 @@ def analyze_candles(candles: list[dict]) -> dict:
         if absorption_conflict and brain_score < 65:
             direction = "NEUTRO"
 
-    # Filtro de qualidade de entrada.
+    # Filtro de qualidade: contexto e tendência/EMA100 pesam na nota,
+    # mas deixam de ser vetos absolutos. Só dados/condições realmente ruins
+    # bloqueiam a entrada. Mantém a assinatura e os campos esperados pelo servidor.
     entry_filter_reasons = []
+    entry_context_warnings = []
     if direction == "NEUTRO":
         entry_filter_reasons.append("DIRECAO_NAO_CONFIRMADA")
     else:
-        if sideways:
-            entry_filter_reasons.append("MERCADO_LATERAL")
-        if trend_direction != direction:
-            entry_filter_reasons.append("TENDENCIA_SEM_ALINHAMENTO")
-        if flow_direction != direction:
-            entry_filter_reasons.append("FLUXO_SEM_ALINHAMENTO")
-        if confirm_count < 3:
+        direction_sign = 1.0 if direction == "CALL" else -1.0
+
+        # Duas confirmações independentes continuam obrigatórias.
+        if confirm_count < 2:
             entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES")
-        if ema100_direction != direction:
-            entry_filter_reasons.append("EMA100_SEM_ALINHAMENTO")
+
+        # Proteções de volatilidade continuam como bloqueios rígidos.
         if volatility_too_low:
             entry_filter_reasons.append("VOLATILIDADE_BAIXA")
         if volatility_spike:
             entry_filter_reasons.append("PICO_DE_VOLATILIDADE")
+
+        # ADX muito baixo continua bloqueado. Faixa lateral moderada exige
+        # confirmação/nota maiores, em vez de vetar qualquer oportunidade.
+        if adx_value < 12:
+            entry_filter_reasons.append("MERCADO_SEM_FORCA_MINIMA")
+
+        if signal_mode == "MEAN_REVERSION":
+            # A reversão não precisa estar alinhada à tendência/EMA100.
+            if trend_direction != direction:
+                entry_context_warnings.append("REVERSAO_CONTRA_TENDENCIA")
+            if ema100_direction != direction:
+                brain_score -= 5
+                entry_context_warnings.append("EMA100_CONTRARIA_A_REVERSAO")
+            if flow * direction_sign <= -0.35:
+                entry_filter_reasons.append("FLUXO_FORTE_CONTRA_REVERSAO")
+        else:
+            if trend_direction != direction:
+                brain_score -= 8
+                entry_context_warnings.append("TENDENCIA_DIVERGENTE_PENALIZADA")
+            if ema100_direction != direction:
+                brain_score -= 5
+                entry_context_warnings.append("EMA100_DIVERGENTE_PENALIZADA")
+            # A direção agregada pode ser válida mesmo se a maioria estrita
+            # dos proxies de fluxo estiver neutra. Só oposição forte pesa muito.
+            aligned_flow_pressure = flow * direction_sign
+            if aligned_flow_pressure <= -0.20:
+                brain_score -= 10
+                entry_context_warnings.append("FLUXO_CONTRARIO_PENALIZADO")
+            elif flow_direction != direction:
+                brain_score -= 3
+                entry_context_warnings.append("FLUXO_SEM_MAIORIA_DIRECIONAL")
+
+        if sideways:
+            brain_score -= 8
+            entry_context_warnings.append("ADX_EM_FAIXA_LATERAL")
+
+        brain_score = max(0, min(97, brain_score))
+        minimum_score = 63 if sideways else 55
+        minimum_confirms = 3 if sideways else 2
+        if confirm_count < minimum_confirms:
+            entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES_PARA_ADX")
+        if brain_score < minimum_score:
+            entry_filter_reasons.append("PONTUACAO_ABAIXO_DO_MINIMO")
 
         if entry_filter_reasons:
             direction = "NEUTRO"
@@ -713,6 +763,7 @@ def analyze_candles(candles: list[dict]) -> dict:
         "volatility_spike": volatility_spike,
         "entry_filter_passed": not bool(entry_filter_reasons),
         "entry_filter_reasons": entry_filter_reasons,
+        "entry_context_warnings": entry_context_warnings,
         "ema_spread_atr": round(ema_spread_atr, 3),
         "ema_slope_atr": round(ema_slope_atr, 3),
         "ema9": round(ma9_value, 6),
