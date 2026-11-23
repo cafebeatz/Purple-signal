@@ -130,7 +130,14 @@
       </section>
 
       <aside class="panel p-4 min-w-0">
-        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
+        <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
+        <label for="market-filter" class="text-xs muted">Exibir oportunidades</label>
+        <select id="market-filter" class="field mt-1 mb-2">
+          <option value="all">Todos os mercados</option>
+          <option value="open">Mercado Aberto</option>
+          <option value="otc">OTC</option>
+        </select>
+        <div id="market-counts" class="text-xs muted mb-3">Mercado Aberto: — · OTC: —</div>
         <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
         <div class="border-t border-slate-700 mt-4 pt-4">
           <h3 class="text-sm font-bold mb-2">Indicadores</h3>
@@ -146,7 +153,7 @@
   'use strict';
   const API='/api';
   const $=id=>document.getElementById(id);
-  let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null;
+  let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null, marketFilter='all', lastRankingItems=[];
   let pollTimers=[], candleCloseAt=0;
   let configSaveTimer=null, configSaving=false, configDirty=false;
   const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
@@ -291,22 +298,50 @@
     if(['PUT','SELL','VENDA','DOWN'].some(v=>dir===v||dir.startsWith(v+' ')))return 'signal-put';
     return 'signal-neutral';
   }
+  function getMarketType(item){
+    const raw=String(item?.market_type||item?.market||'').toLowerCase();
+    if(raw==='otc'||raw.includes('otc'))return 'otc';
+    if(raw==='open'||raw.includes('aberto')||raw.includes('regular'))return 'open';
+    return getAsset(item).toUpperCase().includes('OTC')?'otc':'open';
+  }
+  function marketLabel(type){return type==='otc'?'OTC':'Mercado Aberto'}
+  function marketMatchesFilter(item){
+    return marketFilter==='all'||getMarketType(item)===marketFilter;
+  }
+  $('market-filter').addEventListener('change',()=>{
+    marketFilter=$('market-filter').value;
+    renderRanking(lastRankingItems);
+  });
   function renderRanking(items){
-    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
-    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
-    $('scanner-list').innerHTML=items.map((x,i)=>{
+    lastRankingItems=Array.isArray(items)?items:[];
+    const visible=lastRankingItems.filter(marketMatchesFilter);
+    $('rank-count').textContent=visible.length;
+    $('scanner-count').textContent=marketFilter==='all'
+      ? `${visible.length} ativos`
+      : `${visible.length} de ${lastRankingItems.length}`;
+    if(!visible.length){
+      $('scanner-list').innerHTML=lastRankingItems.length
+        ? '<div class="skeleton text-sm">Nenhum ativo deste mercado no ranking atual.</div>'
+        : '<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';
+      return;
+    }
+    $('scanner-list').innerHTML=visible.map((x,i)=>{
       const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
       const conf=x.confidence??x.confidence_pct??x.score;
       const price=x.price??x.close;
+      const type=getMarketType(x),label=marketLabel(type);
+      const badgeClass=type==='otc'?'text-amber-200 border-amber-500/40 bg-amber-500/10':'text-cyan-200 border-cyan-500/40 bg-cyan-500/10';
       return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${directionClass(dir)}">${escapeHtml(dir||'—')}</span></div>
-        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
+        <div class="flex justify-between gap-2 items-center"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-[10px] rounded-full border px-2 py-1 ${badgeClass}">${label}</span></div>
+        <div class="flex justify-between gap-2 mt-2 text-xs"><span class="${directionClass(dir)}">${escapeHtml(dir||'—')}</span><span class="muted">Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span class="muted">${price==null?'':escapeHtml(fmt(price,5))}</span></div>
       </button>`;
     }).join('');
     $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
-      const item=items[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
+      const item=visible[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
     }));
-    if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
+    if(!selectedAsset||!visible.some(x=>getAsset(x)===selectedAsset)){
+      selectedSignal=visible[0];selectedAsset=getAsset(visible[0]);renderHero(visible[0]);refreshChart();
+    }
   }
   function renderHero(x){
     const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
@@ -314,7 +349,7 @@
     $('hero-direction').className='text-xl font-black '+directionClass(dir);
     const conf=x.confidence??x.confidence_pct??x.score;
     $('hero-confidence').textContent='Confiança: '+(conf==null?'—':conf+'%');
-    $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
+    $('hero-meta').textContent=[marketLabel(getMarketType(x)),x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
     $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
     $('hero-timeframe').textContent=$('timeframe').value;
     const ind=x.indicators||x.analysis||null;
@@ -339,18 +374,21 @@
       $('daily-profit').textContent=fmt(s.daily_profit??0,2);$('risk-status').textContent=s.risk_halted?'BLOQUEADO':'Normal';$('risk-status').className='block text-base mt-1 '+(s.risk_halted?'text-rose-300':'text-emerald-300');$('robot-status-note').textContent=s.risk_reason||s.message||'Proteção diária ativa conforme configuração.';
       $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
       const ranking=normalizeRanking(s);
+      const counts=s.asset_counts||{};
+      $('market-counts').textContent=`Mercado Aberto: ${counts.open??ranking.filter(x=>getMarketType(x)==='open').length} · OTC: ${counts.otc??ranking.filter(x=>getMarketType(x)==='otc').length}`;
       renderRanking(ranking);
-      if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
+      if(s.best&&typeof s.best==='object'&&marketMatchesFilter(s.best)){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
       $('api-dot').className='dot ok';$('api-status').textContent='API conectada';
     }catch(err){$('api-dot').className='dot bad';$('api-status').textContent='API indisponível';$('scan-message').textContent=err.message}
   }
   async function refreshChart(){
     if(!selectedAsset||selectedAsset==='—')return;
     try{
-      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset));
+      const type=selectedSignal?getMarketType(selectedSignal):(selectedAsset.toUpperCase().includes('OTC')?'otc':'open');
+      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset)+'&market_type='+encodeURIComponent(type));
       const candles=Array.isArray(data.candles)?data.candles:[];
       const c=candles[candles.length-1];
-      $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
+      $('chart-source').textContent=selectedAsset+' · '+marketLabel(data.market_type||type)+' · '+(data.timeframe||$('timeframe').value);
       if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
       $('hero-price').textContent=fmt(c.close,5);
       $('hero-candle-time').textContent=dateFmt(c.ts);
