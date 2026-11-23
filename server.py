@@ -44,6 +44,7 @@ from broker import (
     SIM_PAYOUT,
     TIMEFRAME_SECONDS,
     BrokerSession,
+    market_type_for_asset,
     check_trade,
     connect_broker,
     disconnect_broker,
@@ -123,6 +124,14 @@ class ScanStartIn(BaseModel):
     timeframe: str = Field(default="M1", pattern="^(M1|M5|M15)$")
     min_confidence: int = Field(default=70, ge=50, le=99)
     auto_trade: bool = False
+    amount: float = Field(default=2.0, ge=1, le=10000)
+    target_gain: float = Field(default=0.0, ge=0, le=100000000)
+    max_loss: float = Field(default=0.0, ge=0, le=100000000)
+
+
+class ScanConfigIn(BaseModel):
+    timeframe: str = Field(default="M1", pattern="^(M1|M5|M15)$")
+    min_confidence: int = Field(default=70, ge=50, le=99)
     amount: float = Field(default=2.0, ge=1, le=10000)
     target_gain: float = Field(default=0.0, ge=0, le=100000000)
     max_loss: float = Field(default=0.0, ge=0, le=100000000)
@@ -305,6 +314,10 @@ def _session_out(session: BrokerSession) -> dict:
         "currency": session.currency,
         "message": session.message,
         "assets_count": len(session.assets),
+        "asset_counts": {
+            "open": len(session.market_assets.get("open", [])),
+            "otc": len(session.market_assets.get("otc", [])),
+        },
     }
 
 
@@ -326,6 +339,7 @@ def _signal_doc(
         "session_id": state["session_id"],
         "session_started_at": state["session_started_at"],
         "asset": best["asset"],
+        "market_type": best.get("market_type") or market_type_for_asset(best["asset"]),
         "direction": best["direction"],
         "confidence": best["confidence"],
         "price": best["price"],
@@ -397,6 +411,14 @@ async def _auto_trade(
     await _refresh_risk_state(user_id)
     if state.get("risk_halted"):
         state["message"] = "Ordem bloqueada pela proteção diária: " + state["risk_reason"]
+        return False
+
+    if doc.get("asset") not in session.assets:
+        state["message"] = "Ordem bloqueada: ativo não confirmado na lista da corretora."
+        return False
+    expected_market = market_type_for_asset(doc.get("asset", ""))
+    if doc.get("market_type", expected_market) != expected_market:
+        state["message"] = "Ordem bloqueada: identificação do mercado não corresponde ao ativo."
         return False
 
     amount = float(state["amount"])
@@ -617,6 +639,8 @@ async def _scan_loop(user_id: str) -> None:
                 # Eles são informativos: somente signal_results pode gerar entrada.
                 item = {
                     "asset": asset,
+                    "market_type": market_type_for_asset(asset),
+                    "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
                     "candle_ts": int(closed[-1]["ts"]),
                     "signal_ready": is_confirmed,
                     "status": (
@@ -643,7 +667,19 @@ async def _scan_loop(user_id: str) -> None:
                 key=lambda item: float(item.get("confidence") or 0),
                 reverse=True,
             )
-            state["ranking"] = ranking_results[:10]
+            # Mantém até 10 oportunidades de cada mercado para que um deles
+            # não desapareça do painel quando o outro tiver pontuações maiores.
+            open_ranking = [x for x in ranking_results if x.get("market_type") == "open"][:10]
+            otc_ranking = [x for x in ranking_results if x.get("market_type") == "otc"][:10]
+            state["ranking"] = sorted(
+                open_ranking + otc_ranking,
+                key=lambda item: (
+                    bool(item.get("signal_ready")),
+                    float(item.get("confidence") or 0),
+                    int(item.get("candle_ts") or 0),
+                ),
+                reverse=True,
+            )
             state["last_scan_ts"] = iso_now()
             state["best"] = signal_results[0] if signal_results else None
 
@@ -675,9 +711,11 @@ async def _scan_loop(user_id: str) -> None:
 
             elif not signal_results:
                 state["message"] = (
-                    f"Scanner analisando {len(ranking_results)} ativo(s); "
+                    f"Scanner analisando {len(ranking_results)} ativo(s) "
+                    f"(Mercado Aberto: {len(session.market_assets.get('open', []))}; "
+                    f"OTC: {len(session.market_assets.get('otc', []))}); "
                     "aguardando confirmação técnica para gerar sinais."
-                    if ranking_results else "Aguardando candles da corretora..."
+                    if ranking_results else "Aguardando candles confirmados da corretora..."
                 )
 
             await _settle_pending(user_id, session)
@@ -735,6 +773,12 @@ async def _start_scan_with_config(
         raise HTTPException(
             status_code=400,
             detail="Conecte uma corretora antes de iniciar o scanner",
+        )
+
+    if not session.assets:
+        raise HTTPException(
+            status_code=409,
+            detail="A corretora conectou, mas não confirmou ativos de Mercado Aberto nem OTC. Atualize a conexão; nenhuma lista fictícia será usada.",
         )
 
     if auto_trade and amount > float(session.balance or 0):
@@ -964,6 +1008,20 @@ async def broker_refresh_balance(user=Depends(get_current_user)):
 # Rotas do scanner
 # ---------------------------------------------------------------------------
 
+@api.put("/scan/config")
+async def scan_config(payload: ScanConfigIn, user=Depends(get_current_user)):
+    state = _state(user["id"])
+    state.update({
+        "timeframe": payload.timeframe,
+        "min_confidence": payload.min_confidence,
+        "amount": payload.amount,
+        "target_gain": payload.target_gain,
+        "max_loss": payload.max_loss,
+    })
+    await _refresh_risk_state(user["id"])
+    return {"ok": True, "message": "Configurações salvas no servidor."}
+
+
 @api.post("/scan/start")
 async def scan_start(
     payload: ScanStartIn,
@@ -1013,6 +1071,12 @@ async def scan_state(user=Depends(get_current_user)):
     pending = await db.signals.count_documents({**session_query, "result": "PENDENTE"})
     total = wins + losses
 
+    session = _BROKER_SESSIONS.get(user_id)
+    asset_counts = {
+        "open": len(session.market_assets.get("open", [])) if session else 0,
+        "otc": len(session.market_assets.get("otc", [])) if session else 0,
+    }
+
     return {
         "running": state["running"],
         "paused": state["paused"],
@@ -1027,6 +1091,7 @@ async def scan_state(user=Depends(get_current_user)):
         "server_time": now_ts,
         "best": state["best"],
         "ranking": state["ranking"],
+        "asset_counts": asset_counts,
         "message": state["message"],
         "daily_profit": state["daily_profit"],
         "risk_halted": state["risk_halted"],
@@ -1328,9 +1393,20 @@ async def clear_current_session_history(user=Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @api.get("/chart")
-async def chart(asset: str, user=Depends(get_current_user)):
+async def chart(
+    asset: str,
+    market_type: Optional[str] = Query(default=None, pattern="^(open|otc)$"),
+    user=Depends(get_current_user),
+):
     state = _state(user["id"])
     requested_asset = str(asset or "").strip()
+    actual_market = market_type_for_asset(requested_asset)
+    if market_type and market_type != actual_market:
+        raise HTTPException(status_code=400, detail="O tipo de mercado informado não corresponde ao ativo selecionado.")
+
+    session = _BROKER_SESSIONS.get(user["id"])
+    if session and session.connected and requested_asset not in session.assets:
+        raise HTTPException(status_code=404, detail="Ativo não confirmado na lista atual da corretora.")
     candles = state["candles"].get(requested_asset)
 
     # Tenta localizar a chave sem depender de maiúsculas/minúsculas.
@@ -1377,6 +1453,8 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
     return {
         "asset": asset,
+        "market_type": actual_market,
+        "market_label": "OTC" if actual_market == "otc" else "Mercado Aberto",
         "timeframe": state["timeframe"],
         "candles": out,
         "ma9": [
