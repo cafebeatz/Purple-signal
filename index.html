@@ -1,447 +1,111 @@
 <!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Purple Signal — Terminal de Sinais</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <style>
-    :root{color-scheme:dark;--bg:#080b12;--panel:#101725;--line:#243044;--muted:#8b9ab0;--cyan:#22d3ee;--green:#34d399;--red:#fb7185;--gold:#fbbf24}
-    *{box-sizing:border-box} body{margin:0;background:radial-gradient(ellipse at top,#172235 0,#080b12 48%);color:#e5edf8;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-    .panel{background:linear-gradient(145deg,rgba(19,29,45,.96),rgba(12,18,29,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0005}
-    .muted{color:var(--muted)} .field{width:100%;background:#080e18;border:1px solid #2a3950;border-radius:9px;padding:10px 12px;color:#e5edf8;outline:none}
-    .field:focus{border-color:var(--cyan)} .btn{border-radius:9px;padding:10px 14px;font-weight:700;transition:.15s}
-    .btn-primary{background:linear-gradient(90deg,#0891b2,#06b6d4);color:#04131a}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
-    .btn-secondary{background:#1b293b;border:1px solid #33445c;color:#dce8f8}.btn-danger{background:#4a1f2a;border:1px solid #713344;color:#fecdd3}
-    .pill{border:1px solid #33445c;background:#111c2b;border-radius:999px;padding:4px 9px;font-size:11px}
-    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.ok{background:#34d399;box-shadow:0 0 10px #34d39988}.dot.bad{background:#fb7185}
-    .signal-call{color:#34d399}.signal-put{color:#fb7185}
-    .row-hover:hover{background:#172438}.hidden{display:none!important}
-    .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{padding:10px 12px;border-bottom:1px solid #253247;text-align:left;font-size:12px} th{color:#91a3bb;font-weight:600}
-    .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
-    input[type=range]{accent-color:#22d3ee}
-    @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
-  </style>
-</head>
-<body>
-  <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
-    <div class="panel w-full max-w-md p-7">
-      <div class="flex items-center gap-3 mb-6">
-        <div class="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-2xl font-black tracking-wide">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
-      </div>
-      <div class="flex gap-2 mb-5">
-        <button id="mode-login" class="btn btn-primary flex-1" type="button">Entrar</button>
-        <button id="mode-register" class="btn btn-secondary flex-1" type="button">Criar conta</button>
-      </div>
-      <form id="auth-form" class="space-y-3">
-        <div id="name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" autocomplete="name"></div>
-        <div><label class="text-xs muted">E-mail</label><input id="auth-email" class="field mt-1" type="email" required autocomplete="username"></div>
-        <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required autocomplete="current-password"></div>
-        <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
-      </form>
-      <p id="auth-error" class="text-sm text-rose-300 mt-4" role="alert"></p>
-      <p class="text-xs muted mt-5">A autenticação é validada pelo servidor. Sem resposta válida da API, o painel não libera o acesso.</p>
-    </div>
-  </div>
+<html lang="pt-BR" class="dark">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="theme-color" content="#000000" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+        <!--
+        manifest.json provides metadata used when your web app is installed on a
+        user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+        -->
+        <!--
+        Notice the use of %PUBLIC_URL% in the tags above.
+        It will be replaced with the URL of the `public` folder during the build.
+        Only files inside the `public` folder can be referenced from the HTML.
 
-  <main id="dashboard" class="hidden min-h-screen p-3 md:p-5">
-    <header class="header-wrap flex justify-between gap-4 mb-5">
-      <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
-        <span class="pill flex items-center gap-2"><span id="broker-dot" class="dot"></span><span id="broker-status">Corretora desconectada</span></span>
-        <button id="logout-btn" class="btn btn-secondary text-sm" type="button">Sair</button>
-      </div>
-    </header>
+        Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+        work correctly both with client-side routing and a non-root public URL.
+        Learn how to configure a non-root public URL by running `npm run build`.
+        -->
+        <title>Purple Signal Analyst</title>
+        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+    </head>
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root"></div>
+        <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
 
-    <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
-      <aside class="space-y-4">
-        <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-cyan-300"></i> Conexão da corretora</h2>
-          <form id="broker-form" class="space-y-3">
-            <div><label class="text-xs muted">Corretora</label><select id="broker-name" class="field mt-1"><option value="iqoption">IQ Option</option><option value="polarium">Polarium</option></select></div>
-            <div><label class="text-xs muted">E-mail da corretora</label><input id="broker-email" class="field mt-1" type="email" autocomplete="off" required></div>
-            <div><label class="text-xs muted">Senha da corretora</label><input id="broker-password" class="field mt-1" type="password" autocomplete="new-password" required></div>
-            <div><label class="text-xs muted">Conta</label><select id="account-type" class="field mt-1"><option value="demo">Demo</option><option value="real">Real</option></select></div>
-            <button id="broker-connect" class="btn btn-primary w-full" type="submit">Conectar</button>
-            <button id="broker-disconnect" class="btn btn-secondary w-full hidden" type="button">Desconectar</button>
-          </form>
-          <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
-        </div>
-        <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
-          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
-          <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
-          <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
-          <div class="mt-4 flex gap-2"><button id="scan-start" class="btn btn-primary flex-1" type="button" disabled>Iniciar</button><button id="scan-stop" class="btn btn-danger flex-1 hidden" type="button">Parar</button></div>
-          <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-          <p class="text-xs muted mt-3">A execução automática de ordens permanece desativada nesta interface.</p>
-        </div>
-        <div class="panel p-4">
-          <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
-          <div id="balance" class="text-2xl font-black metric">—</div>
-          <div id="balance-note" class="text-xs muted mt-1">Nenhum saldo confirmado</div>
-          <button id="refresh-balance" class="btn btn-secondary w-full mt-3 text-sm" type="button" disabled>Atualizar saldo</button>
-        </div>
-      </aside>
+      You can add webfonts, meta tags, or analytics to this file.
+      The build step will place the bundled scripts into the <body> tag.
 
-      <section class="space-y-4 min-w-0">
-        <div class="panel p-5">
-          <div class="flex flex-wrap justify-between gap-3 items-start">
-            <div><div class="text-xs muted uppercase tracking-widest">Melhor oportunidade retornada pela API</div><div id="hero-asset" class="text-2xl md:text-3xl font-black mt-2">Aguardando scanner</div><div id="hero-meta" class="text-xs muted mt-1">Nenhum sinal confirmado</div></div>
-            <div class="text-right"><div id="hero-direction" class="text-xl font-black">—</div><div id="hero-confidence" class="text-sm muted">Confiança: —</div></div>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Último fechamento</div><div id="hero-price" class="font-bold metric mt-1">—</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M5</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
-          </div>
-          <p class="text-xs muted mt-4">O preço exibido é o fechamento da última vela retornada por <code>/api/chart</code>, não uma cotação tick a tick.</p>
-        </div>
-        <div class="panel p-4">
-          <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Histórico real de sinais</h2><span id="history-stats" class="text-xs muted">Sem operações registradas</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="6" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
-        </div>
-        <div class="panel p-4">
-          <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
-          <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
-          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
-          </div>
-        </div>
-      </section>
-
-      <aside class="panel p-4 min-w-0">
-        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
-        <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
-        <div class="border-t border-slate-700 mt-4 pt-4">
-          <h3 class="text-sm font-bold mb-2">Indicadores</h3>
-          <div id="indicator-details" class="text-xs muted space-y-1">Os indicadores serão exibidos em formato legível quando a API os retornar.</div>
-        </div>
-      </aside>
-    </section>
-    <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
-  </main>
-
-<script>
-(() => {
-  'use strict';
-  const API='/api';
-  const $=id=>document.getElementById(id);
-  let authMode='login', token=localStorage.getItem('purple_signal_api_token')||'';
-  let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
-  let pollTimers=[];
-  const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
-  const safe=(v)=>String(v??'—');
-  const dateFmt=(v)=>{
-    if(v==null)return '—';
-    let d=typeof v==='number'?new Date(v<1e12?v*1000:v):new Date(v);
-    return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR');
-  };
-  function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');setTimeout(()=>$('toast').classList.add('hidden'),3500)}
-  async function api(path, options={}){
-    const headers={...(options.headers||{})};
-    if(options.body!==undefined)headers['Content-Type']='application/json';
-    if(token)headers.Authorization='Bearer '+token;
-    const res=await fetch(API+path,{...options,headers,credentials:'same-origin'});
-    let data={};try{data=await res.json()}catch(_){}
-    if(!res.ok)throw new Error(data.detail||data.message||data.error||`Erro HTTP ${res.status}`);
-    return data;
-  }
-  function showLogin(message=''){
-    stopPolling();$('dashboard').classList.add('hidden');$('login-screen').classList.remove('hidden');
-    $('auth-error').textContent=message;user=null;
-  }
-  function showDashboard(){
-    $('login-screen').classList.add('hidden');$('dashboard').classList.remove('hidden');
-    if(window.lucide)lucide.createIcons();
-  }
-  function setAuthMode(mode){
-    authMode=mode;const reg=mode==='register';
-    $('name-wrap').classList.toggle('hidden',!reg);
-    $('mode-login').className='btn '+(!reg?'btn-primary':'btn-secondary')+' flex-1';
-    $('mode-register').className='btn '+(reg?'btn-primary':'btn-secondary')+' flex-1';
-    $('auth-submit').textContent=reg?'Criar conta':'Entrar';
-    $('auth-password').autocomplete=reg?'new-password':'current-password';
-    $('auth-error').textContent='';
-  }
-  $('mode-login').addEventListener('click',()=>setAuthMode('login'));
-  $('mode-register').addEventListener('click',()=>setAuthMode('register'));
-  $('auth-form').addEventListener('submit',async e=>{
-    e.preventDefault();$('auth-submit').disabled=true;$('auth-error').textContent='Validando no servidor…';
-    const email=$('auth-email').value.trim(),password=$('auth-password').value;
-    try{
-      const body={email,password};
-      if(authMode==='register')body.name=$('auth-name').value.trim();
-      if(authMode==='register'&&!body.name)throw new Error('Informe seu nome.');
-      const result=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});
-      if(result.token){token=result.token;localStorage.setItem('purple_signal_api_token',token)}
-      const me=await api('/auth/me');
-      user=me.user||me;
-      showDashboard();await refreshAll();startPolling();
-    }catch(err){token='';localStorage.removeItem('purple_signal_api_token');$('auth-error').textContent=err.message||'Não foi possível autenticar.'}
-    finally{$('auth-submit').disabled=false}
-  });
-  $('logout-btn').addEventListener('click',async()=>{
-    try{await api('/auth/logout',{method:'POST'})}catch(_){}
-    token='';localStorage.removeItem('purple_signal_api_token');showLogin('Sessão encerrada.');
-  });
-  async function restoreSession(){
-    try{const me=await api('/auth/me');user=me.user||me;showDashboard();await refreshAll();startPolling()}
-    catch(_){showLogin('Entre com sua conta para continuar.')}
-  }
-
-  $('broker-form').addEventListener('submit',async e=>{
-    e.preventDefault();
-    const btn=$('broker-connect');btn.disabled=true;btn.textContent='Conectando…';
-    $('broker-message').textContent='Aguardando confirmação da corretora pelo servidor…';
-    const password=$('broker-password').value;
-    try{
-      const result=await api('/broker/connect',{method:'POST',body:JSON.stringify({
-        broker:$('broker-name').value,email:$('broker-email').value.trim(),password,
-        account_type:$('account-type').value,simulate:false
-      })});
-      if(result.connected!==true||result.simulated===true)throw new Error(result.message||'O servidor não confirmou uma conexão real.');
-      brokerConnected=true;updateBrokerUI(result);
-      $('broker-message').textContent=result.message||'Conexão confirmada pelo servidor.';
-      toast('Corretora conectada conforme resposta da API.');
-      await refreshAll();
-    }catch(err){brokerConnected=false;updateBrokerUI();$('broker-message').textContent=err.message;toast(err.message)}
-    finally{$('broker-password').value='';btn.disabled=false;btn.textContent='Conectar'}
-  });
-  $('broker-disconnect').addEventListener('click',async()=>{
-    try{await api('/broker/disconnect',{method:'POST'});brokerConnected=false;updateBrokerUI();$('broker-message').textContent='Desconexão confirmada pelo servidor.';toast('Corretora desconectada.')}
-    catch(err){$('broker-message').textContent=err.message}
-  });
-  function updateBrokerUI(data={}){
-    $('broker-dot').className='dot '+(brokerConnected?'ok':'');
-    $('broker-status').textContent=brokerConnected?`${data.broker||$('broker-name').selectedOptions[0].text} conectado`:'Corretora desconectada';
-    $('broker-connect').classList.toggle('hidden',brokerConnected);
-    $('broker-disconnect').classList.toggle('hidden',!brokerConnected);
-    $('scan-start').disabled=!brokerConnected||scanning;
-    $('refresh-balance').disabled=!brokerConnected;
-    if(data.balance!==undefined){$('balance').textContent=`${fmt(data.balance,2)} ${safe(data.currency||'')}`;$('balance-note').textContent=`Conta ${safe(data.account_type||$('account-type').value).toUpperCase()} · resposta da API`}
-    else if(!brokerConnected){$('balance').textContent='—';$('balance-note').textContent='Nenhum saldo confirmado'}
-  }
-  async function refreshBroker(){
-    try{
-      const s=await api('/broker/status');
-      const session=s.session||s;
-      brokerConnected=session.connected===true&&!session.simulated;
-      updateBrokerUI(session);
-      if(session.connected===true&&session.balance!==undefined)updateBrokerUI(session);
-      if(s.connected===false||session.connected===false)brokerConnected=false;
-    }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
-  }
-  $('refresh-balance').addEventListener('click',async()=>{
-    try{const s=await api('/broker/status');const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
-    catch(err){toast(err.message)}
-  });
-
-  $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
-  $('timeframe').addEventListener('change',async()=>{
-    $('hero-timeframe').textContent=$('timeframe').value;
-    if(selectedAsset)await refreshChart();
-  });
-  $('scan-start').addEventListener('click',async()=>{
-    try{
-      const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:2
-      })});
-      scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
-      await refreshScan();
-    }catch(err){$('scan-message').textContent=err.message;toast('Não foi possível iniciar: '+err.message)}
-  });
-  $('scan-stop').addEventListener('click',async()=>{
-    try{const result=await api('/scan/stop',{method:'POST'});scanning=false;updateScanUI();$('scan-message').textContent=result.message||'Scanner parado pelo servidor.';toast('Scanner parado.')}
-    catch(err){$('scan-message').textContent=err.message}
-  });
-  function updateScanUI(){
-    $('scan-start').classList.toggle('hidden',scanning);$('scan-stop').classList.toggle('hidden',!scanning);
-    $('scan-start').disabled=!brokerConnected||scanning;
-  }
-  function normalizeRanking(data){
-    if(Array.isArray(data))return data;
-    if(Array.isArray(data?.ranking))return data.ranking;
-    if(Array.isArray(data?.items))return data.items;
-    return [];
-  }
-  function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
-  function renderRanking(items){
-    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
-    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
-    $('scanner-list').innerHTML=items.map((x,i)=>{
-      const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-      const conf=x.confidence??x.confidence_pct??x.score;
-      const price=x.price??x.close;
-      return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':'text-emerald-300'}">${escapeHtml(dir||'—')}</span></div>
-        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
-      </button>`;
-    }).join('');
-    $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
-      const item=items[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
-    }));
-    if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
-  }
-   function renderHero(x){
-    const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-    $('hero-asset').textContent=asset;$('hero-direction').textContent=dir||'—';
-    $('hero-direction').className='text-xl font-black '+(dir.includes('PUT')||dir.includes('SELL')?'signal-put':dir?'signal-call':'');
-    const conf=x.confidence??x.confidence_pct??x.score;
-    $('hero-confidence').textContent='Confiança: '+(conf==null?'—':conf+'%');
-    $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
-    $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
-    $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators||x.analysis||x.metrics||null;
-    renderIndicators(ind);
-  }
-  function humanizeKey(key){
-    return String(key).replace(/[_-]+/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2')
-      .replace(/\bma(\d+)\b/gi,'Média móvel $1')
-      .replace(/\bema(\d+)\b/gi,'EMA $1')
-      .replace(/\brsi\b/gi,'RSI')
-      .replace(/\badx\b/gi,'ADX')
-      .replace(/\bdi ?plus\b/gi,'DI+')
-      .replace(/\bdi ?minus\b/gi,'DI−')
-      .replace(/\bmacd\b/gi,'MACD')
-      .replace(/\batr\b/gi,'ATR')
-      .replace(/\bvolume\b/gi,'Volume')
-      .replace(/\b[a-z]/g,c=>c.toUpperCase());
-  }
-  function formatIndicatorValue(value){
-    if(value===null||value===undefined||value==='')return '—';
-    if(typeof value==='boolean')return value?'Sim':'Não';
-    if(typeof value==='number')return Number.isFinite(value)?value.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
-    if(typeof value==='string')return value;
-    return null;
-  }
-  function renderIndicators(data){
-    const target=$('indicator-details');
-    if(!data || typeof data!=='object'){
-      target.innerHTML='<div class="skeleton">Aguardando um sinal válido do scanner para mostrar os indicadores.</div>';
-      return;
-    }
-    const groups=[
-      {title:'Tendência e médias',items:[
-        ['EMA 9','ema9'],['EMA 21','ema21'],['EMA 100','ema100'],
-        ['Confirmação EMA','ema_confirmation'],['Gatilho EMA','ema_trigger'],
-        ['Média SMA 9','sma9'],['Média SMA 21','sma21']
-      ]},
-      {title:'Força e direção',items:[
-        ['RSI (14)','rsi'],['Status RSI','rsi_status'],['ADX','adx'],
-        ['Status ADX','adx_status'],['DI+','di_plus'],['DI−','di_minus'],
-        ['Leitura Didi','didi_status']
-      ]},
-      {title:'Fluxo estimado',items:[
-        ['Direção do fluxo','flow_direction'],['Pressão do fluxo','flow_pressure'],
-        ['Força do fluxo','flow_strength'],['Fluxo dos candles','candle_flow'],
-        ['Fluxo ponderado por volume','candle_volume_flow'],
-        ['Fluxo de mercado','market_flow'],['Fluxo de volume','market_volume_flow'],
-        ['Fonte do fluxo','flow_source']
-      ]},
-      {title:'Confirmações do cérebro',items:[
-        ['Direção da tendência','trend_direction'],['Força da tendência','trend_strength'],
-        ['Confirmações de entrada','entry_confirmations'],['Pontuação do cérebro','brain_score'],
-        ['Filtro de entrada','entry_filter_passed'],['Motivos de bloqueio','entry_filter_reasons']
-      ]},
-      {title:'Candle e absorção',items:[
-        ['Proporção do corpo','candle_body_ratio'],['Absorção detectada','absorption_detected'],
-        ['Força da absorção','absorption_strength'],['Relação de volume','volume_ratio'],
-        ['Impacto estimado','price_impact_estimate'],['Deslocamento em ATR','displacement_atr']
-      ]}
-    ];
-    const fmt=v=>{
-      if(v===null||v===undefined||v==='')return '—';
-      if(typeof v==='boolean')return v?'Sim':'Não';
-      if(Array.isArray(v))return v.length?v.join(', '):'Nenhum';
-      if(typeof v==='number')return Number.isFinite(v)?v.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
-      if(typeof v==='object')return JSON.stringify(v);
-      return String(v);
-    };
-    const card=(label,value)=>{
-      if(value===undefined||value===null||value==='')return '';
-      return `<div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-2 min-w-0">
-        <div class="text-[11px] muted">${escapeHtml(label)}</div>
-        <div class="text-sm font-bold mt-1 break-words">${escapeHtml(fmt(value))}</div>
-      </div>`;
-    };
-    target.innerHTML=groups.map(group=>{
-      const rows=group.items.map(([label,key])=>card(label,data[key])).filter(Boolean).join('');
-      return rows?`<section class="mb-4"><h4 class="text-xs uppercase tracking-wider purple-neon font-bold mb-2">${escapeHtml(group.title)}</h4><div class="grid grid-cols-2 gap-2">${rows}</div></section>`:'';
-    }).join('');
-    if(!target.innerHTML)target.innerHTML='<div class="skeleton">A API retornou o sinal, mas não encontrou os campos esperados dos indicadores.</div>';
-  }
-  function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-  async function refreshScan(){
-    try{
-      const s=await api('/scan/state');
-      scanning=s.running===true;updateScanUI();
-      $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
-      const ranking=normalizeRanking(s);
-      renderRanking(ranking);
-      if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
-      $('api-dot').className='dot ok';$('api-status').textContent='API conectada';
-    }catch(err){$('api-dot').className='dot bad';$('api-status').textContent='API indisponível';$('scan-message').textContent=err.message}
-  }
-  async function refreshChart(){
-    if(!selectedAsset||selectedAsset==='—')return;
-    try{
-      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset));
-      const candles=Array.isArray(data.candles)?data.candles:[];
-      const c=candles[candles.length-1];
-      $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
-      if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
-      $('hero-price').textContent=fmt(c.close,5);
-      $('hero-candle-time').textContent=dateFmt(c.ts);
-      $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
-      const body=Math.abs(Number(c.close)-Number(c.open));
-      const upperShadow=Number(c.high)-Math.max(Number(c.open),Number(c.close));
-      const lowerShadow=Math.min(Number(c.open),Number(c.close))-Number(c.low);
-      $('c-body').textContent=fmt(body,6);
-      $('c-upper-shadow').textContent=fmt(Math.max(0,upperShadow),6);
-      $('c-lower-shadow').textContent=fmt(Math.max(0,lowerShadow),6);
-      $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. SMA 9: ${last(data.ma9)} · SMA 21: ${last(data.ma21)}.`;
-      if(selectedSignal && selectedSignal.indicators){
-        selectedSignal.indicators.sma9=Array.isArray(data.ma9)&&data.ma9.length?data.ma9[data.ma9.length-1].value:null;
-        selectedSignal.indicators.sma21=Array.isArray(data.ma21)&&data.ma21.length?data.ma21[data.ma21.length-1].value:null;
-        renderIndicators(selectedSignal.indicators);
-      }
-    }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
-  }
-  function last(arr){return Array.isArray(arr)&&arr.length?fmt(arr[arr.length-1],5):'—'}
-  async function refreshHistory(){
-    try{
-      const data=await api('/signals/history?limit=50');
-      const items=Array.isArray(data.items)?data.items:[];
-      $('history-stats').textContent=data.stats?`${data.stats.wins??0} vitórias · ${data.stats.losses??0} perdas · ${fmt(data.stats.winrate??0,1)}% acerto · lucro ${fmt(data.stats.profit??0,2)}`:'';
-      if(!items.length){$('history-body').innerHTML='<tr><td colspan="6" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
-      $('history-body').innerHTML=items.map(x=>{
-        const result=String(x.result??x.status??'PENDENTE').toUpperCase();
-        const cls=result.includes('WIN')||result.includes('WON')||result.includes('GAIN')?'text-emerald-300':result.includes('LOSS')||result.includes('LOST')?'text-rose-300':'text-amber-200';
-        return `<tr><td>${escapeHtml(dateFmt(x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${cls}">${escapeHtml(result)}</td><td>${x.profit==null?'—':escapeHtml(fmt(x.profit,2))}</td></tr>`;
-      }).join('');
-    }catch(err){$('history-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
-  }
-  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory()])}
-  function startPolling(){
-    stopPolling();
-    pollTimers=[setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
-  }
-  function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
-  restoreSession();
-  if(window.lucide)lucide.createIcons();
-})();
-</script>
-</body>
+      To begin the development, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+        <script>
+            !(function (t, e) {
+                var o, n, p, r;
+                e.__SV ||
+                    ((window.posthog = e),
+                    (e._i = []),
+                    (e.init = function (i, s, a) {
+                        function g(t, e) {
+                            var o = e.split(".");
+                            2 == o.length && ((t = t[o[0]]), (e = o[1])),
+                                (t[e] = function () {
+                                    t.push(
+                                        [e].concat(
+                                            Array.prototype.slice.call(
+                                                arguments,
+                                                0,
+                                            ),
+                                        ),
+                                    );
+                                });
+                        }
+                        ((p = t.createElement("script")).type =
+                            "text/javascript"),
+                            (p.crossOrigin = "anonymous"),
+                            (p.async = !0),
+                            (p.src =
+                                s.api_host.replace(
+                                    ".i.posthog.com",
+                                    "-assets.i.posthog.com",
+                                ) + "/static/array.js"),
+                            (r =
+                                t.getElementsByTagName(
+                                    "script",
+                                )[0]).parentNode.insertBefore(p, r);
+                        var u = e;
+                        for (
+                            void 0 !== a ? (u = e[a] = []) : (a = "posthog"),
+                                u.people = u.people || [],
+                                u.toString = function (t) {
+                                    var e = "posthog";
+                                    return (
+                                        "posthog" !== a && (e += "." + a),
+                                        t || (e += " (stub)"),
+                                        e
+                                    );
+                                },
+                                u.people.toString = function () {
+                                    return u.toString(1) + ".people (stub)";
+                                },
+                                o =
+                                    "init me ws ys ps bs capture je Di ks register register_once register_for_session unregister unregister_for_session Ps getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Es $s createPersonProfile Is opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Ss debug xs getPageViewId captureTraceFeedback captureTraceMetric".split(
+                                        " ",
+                                    ),
+                                n = 0;
+                            n < o.length;
+                            n++
+                        )
+                            g(u, o[n]);
+                        e._i.push([i, s, a]);
+                    }),
+                    (e.__SV = 1));
+            })(document, window.posthog || []);
+            posthog.init("phc_DbsPb39SRc8z3EiQ6Dhj6ikv4H4rTKcht9d4sZSesceP", {
+                api_host: "https://purple-signal-1.onrender.com",
+                person_profiles: "identified_only", // or 'always' to create profiles for anonymous users as well,
+                session_recording: {
+                    recordCrossOriginIframes: true,
+                    capturePerformance: false,
+                },
+            });
+        </script>
+    </body>
 </html>
-
- 
