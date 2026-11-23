@@ -1,160 +1,96 @@
-bar_direction = np.sign(close_change)
-    signed_volume = float((bar_direction * volume).sum())
-    market_volume_flow = (
-        signed_volume / float(volume.sum())
-        if volume_available else market_flow
-    )
+"""Purple Signal — fluxo como direção principal, tendência e KDJ como confirmações.
+A leitura de fluxo é uma estimativa baseada em OHLCV (corpo, sombras e volume quando disponível),
+pois a integração atual não fornece agressão bid/ask nem livro de ofertas.
+"""
+from __future__ import annotations
 
-    values = {
-        "market_flow": float(np.clip(market_flow, -1.0, 1.0)),
-        "candle_flow": float(np.clip(candle_flow, -1.0, 1.0)),
-        "candle_body_flow": float(np.clip(candle_body_flow, -1.0, 1.0)),
-        "candle_wick_flow": float(np.clip(candle_wick_flow, -1.0, 1.0)),
-        "candle_volume_flow": float(np.clip(candle_volume_flow, -1.0, 1.0)),
-        "market_volume_flow": float(np.clip(market_volume_flow, -1.0, 1.0)),
-    }
+from typing import Literal
 
-    # Sem volume, só existem duas leituras independentes.
-    active_values = (
-        [
-            values["market_flow"],
-            values["candle_flow"],
-            values["candle_volume_flow"],
-            values["market_volume_flow"],
-        ]
-        if volume_available
-        else [values["market_flow"], values["candle_flow"]]
-    )
-
-    directional_votes = [
-        "CALL" if value >= 0.08 else
-        "PUT" if value <= -0.08 else
-        "NEUTRO"
-        for value in active_values
-    ]
-    bullish = directional_votes.count("CALL")
-    bearish = directional_votes.count("PUT")
-    majority = len(directional_votes) // 2 + 1
-
-    direction = (
-        "CALL" if bullish >= majority else
-        "PUT" if bearish >= majority else
-        "NEUTRO"
-    )
-    composite = float(np.mean(active_values)) if active_values else 0.0
-    strength = min(100, int(abs(composite) * 100))
-
-    return {
-        **values,
-        "direction": direction,
-        "directional_votes": directional_votes,
-        "active_vote_count": len(directional_votes),
-        "volume_available": volume_available,
-        "pressure": composite,
-        "strength": strength,
-        "bullish_votes": bullish,
-        "bearish_votes": bearish,
-    }
+import numpy as np
+import pandas as pd
 
 
-def _trend_component(
-    close: pd.Series, atr_value: float, window: int = 20
-) -> dict:
-    """Tendência independente das EMAs 9/21, via inclinação linear do preço."""
-    values = close.tail(window).astype(float).to_numpy()
-    if len(values) < window or not np.isfinite(atr_value) or atr_value <= 0:
-        return {"direction": "NEUTRO", "slope_atr": 0.0, "strength": 0}
-
-    x = np.arange(len(values), dtype=float)
-    slope = float(np.polyfit(x, values, 1)[0])
-    normalized = slope / atr_value
-    direction = (
-        "CALL" if normalized >= 0.015 else
-        "PUT" if normalized <= -0.015 else
-        "NEUTRO"
-    )
-    return {
-        "direction": direction,
-        "slope_atr": normalized,
-        "strength": min(100, int(abs(normalized) * 100)),
-    }
+def sma(series: pd.Series, period: int) -> pd.Series:
+    return series.rolling(window=period, min_periods=period).mean()
 
 
-Direction = Literal["CALL", "PUT", "NEUTRO"]
+def ema(series: pd.Series, period: int) -> pd.Series:
+    return series.ewm(span=period, adjust=False, min_periods=period).mean()
 
 
-def analyze_candles(candles: list[dict]) -> dict:
-    """Analisa candles fechados: vela/fluxo, EMA 9/21, tendência EMA 50/100 e confluências."""
-    # EMA 100 só é considerada válida com pelo menos 100 candles válidos.
-    if not isinstance(candles, (list, tuple)) or len(candles) < 100:
-        return {"ready": False, "reason": "Candles insuficientes para EMA 100"}
+def rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return (100 - 100 / (1 + rs)).fillna(50)
 
-    df = pd.DataFrame(candles).copy()
-    for col in ("open", "high", "low", "close"):
-        if col not in df:
-            return {"ready": False, "reason": f"Campo obrigatório ausente: {col}"}
-        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    if "volume" not in df:
-        df["volume"] = 0.0
-    df["volume"] = pd.to_numeric(
-        df["volume"], errors="coerce"
-    ).fillna(0.0).clip(lower=0.0)
+def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
+    line = ema(series, fast) - ema(series, slow)
+    signal_line = ema(line, signal)
+    return line, signal_line, line - signal_line
 
-    df = df.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
-    valid = (
-        (df.high >= df[["open", "close", "low"]].max(axis=1))
-        & (df.low <= df[["open", "close", "high"]].min(axis=1))
-    )
-    df = df.loc[valid].reset_index(drop=True)
 
-    if len(df) < 100:
-        return {"ready": False, "reason": "Candles válidos insuficientes para EMA 100"}
+def didi_index(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14):
+    up = high.diff()
+    down = -low.diff()
+    plus_dm = up.where((up > down) & (up > 0), 0.0)
+    minus_dm = down.where((down > up) & (down > 0), 0.0)
+    tr = pd.concat(
+        [high - low, (high - close.shift()).abs(), (low - close.shift()).abs()],
+        axis=1,
+    ).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False, min_periods=period).mean().replace(0, np.nan)
+    plus_di = 100 * plus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean() / atr
+    minus_di = 100 * minus_dm.ewm(alpha=1 / period, adjust=False, min_periods=period).mean() / atr
+    return plus_di.fillna(0), minus_di.fillna(0)
 
-    close, high, low = df.close, df.high, df.low
-    ma9, ma21, ma50, ma100 = (
-        ema(close, 9), ema(close, 21), ema(close, 50), ema(close, 100)
-    )
-    macd_line, macd_signal, macd_hist = macd(close)
-    rsi14 = rsi(close, 14)
-    k, d, j = kdj(high, low, close, 9)
-    adx_series, plus_di, minus_di, atr = _adx(high, low, close, 14)
 
-    i, ip = len(df) - 1, len(df) - 2
-    price = float(close.iloc[i])
-    atr_value = float(atr.iloc[i]) if pd.notna(atr.iloc[i]) else 0.0
-    ma9_value = float(ma9.iloc[i])
-    ma21_value = float(ma21.iloc[i])
-    ma50_value = float(ma50.iloc[i])
-    ma100_value = float(ma100.iloc[i])
-    adx_value = float(adx_series.iloc[i])
-    dp, dm = float(plus_di.iloc[i]), float(minus_di.iloc[i])
-    rsi_value = float(rsi14.iloc[i])
+def kdj(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 9):
+    lowest = low.rolling(period, min_periods=period).min()
+    highest = high.rolling(period, min_periods=period).max()
+    spread = (highest - lowest).replace(0, np.nan)
+    rsv = (100 * (close - lowest) / spread).fillna(50)
+    k = rsv.ewm(alpha=1 / 3, adjust=False).mean()
+    d = k.ewm(alpha=1 / 3, adjust=False).mean()
+    j = 3 * k - 2 * d
+    return k, d, j
 
-    # ETAPA 1 — leitura da última vela FECHADA (a vela anterior à vela em formação).
-    # O chamador deve enviar apenas candles fechados; não há leitura de candles futuros.
-    previous_candle = df.iloc[i]
-    previous_open = float(previous_candle.open)
-    previous_high = float(previous_candle.high)
-    previous_low = float(previous_candle.low)
-    previous_close = float(previous_candle.close)
-    previous_range = max(previous_high - previous_low, 1e-12)
-    previous_body = abs(previous_close - previous_open)
-    previous_upper_wick = previous_high - max(previous_open, previous_close)
-    previous_lower_wick = min(previous_open, previous_close) - previous_low
-    previous_candle_direction = (
-        "CALL" if previous_close > previous_open else
-        "PUT" if previous_close < previous_open else "NEUTRO"
-    )
-    previous_body_ratio = float(np.clip(previous_body / previous_range, 0.0, 1.0))
-    previous_upper_wick_ratio = float(np.clip(previous_upper_wick / previous_range, 0.0, 1.0))
-    previous_lower_wick_ratio = float(np.clip(previous_lower_wick / previous_range, 0.0, 1.0))
-    previous_wick_pressure = previous_lower_wick_ratio - previous_upper_wick_ratio
-    previous_candle_pressure = float(np.clip(
-        (1 if previous_candle_direction == "CALL" else
-         -1 if previous_candle_direction == "PUT" else 0) * previous_body_ratio * 0.70
-        + previous_wick_pressure * 0.30, -1.0, 1.0
-    ))
 
-    # ETAPA 2 — fluxo estimado de mercado por corpo, sombras, deslocamento e volume.
-    # É uma aproximação OHLCV, não agressão real de compra/venda nem livro de ofertas.
+def _estimated_flow(df: pd.DataFrame, window: int = 12) -> float:
+    """Pressão aproximada: candle positivo/negativo ponderado pelo volume."""
+    spread = (df.high - df.low).replace(0, np.nan)
+    pressure = ((df.close - df.open) / spread).clip(-1, 1).fillna(0)
+    volume = pd.to_numeric(
+        df.get("volume", pd.Series(0, index=df.index)),
+        errors="coerce",
+    ).fillna(0).clip(lower=0)
+    weights = volume.tail(window)
+    values = pressure.tail(window)
+    if float(weights.sum()) <= 0:
+        return float(values.mean())
+    return float((values * weights).sum() / weights.sum())
+
+
+def _hidden_structure_confluence(
+    df: pd.DataFrame, direction: str, atr_value: float
+) -> tuple[int, str]:
+    """Confluência privada de pivôs/suporte/resistência. Não retorna níveis ao painel."""
+    if len(df) < 12 or not np.isfinite(atr_value) or atr_value <= 0:
+        return 0, "NONE"
+
+    highs = df.high.astype(float).to_numpy()
+    lows = df.low.astype(float).to_numpy()
+    piv_hi, piv_lo = [], []
+
+    # Pivô confirmado: duas velas à esquerda e duas à direita.
+    for i in range(max(2, len(df) - 45), len(df) - 2):
+        if highs[i] >= max(highs[i - 2:i]) and highs[i] > max(highs[i + 1:i + 3]):
+            piv_hi.append(highs[i])
+        if lows[i] <= min(lows[i - 2:i]) and lows[i] < min(lows[i + 1:i + 3]):
+            piv_lo.append(lows[i])
+
+    price = float(df.close.iloc[-1])
