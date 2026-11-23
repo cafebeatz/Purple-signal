@@ -22,32 +22,6 @@
     .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
     input[type=range]{accent-color:#22d3ee}
     @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
-
-    /* Purple Signal — identidade visual violeta/neon */
-    :root{
-      color-scheme:dark;
-      --bg:#0b0814;--panel:#150f28;--line:#3b2e5f;--muted:#a596c9;
-      --cyan:#00d4ff;--green:#34d399;--red:#fb7185;--gold:#fbbf24;
-      --neon-purple:#a855f7;
-    }
-    body{background:radial-gradient(ellipse at top,#241840 0,#0b0814 48%);color:#e9e4f8}
-    .panel{background:linear-gradient(145deg,rgba(36,25,60,.96),rgba(18,12,35,.96));border-color:#3b2e5f;box-shadow:0 12px 35px #0005,0 0 12px rgba(168,85,247,.08)}
-    .field{background:#100a1f;border-color:#453570;color:#e9e4f8}
-    .field:focus{border-color:#00d4ff;box-shadow:0 0 0 2px rgba(0,212,255,.15),0 0 8px rgba(0,212,255,.25)}
-    .btn-primary{background:linear-gradient(90deg,#1e1b4b,#3b0763);color:#e0e7ff;border:1px solid rgba(0,212,255,.3);box-shadow:0 0 8px rgba(0,212,255,.15)}
-    .btn-primary:hover{box-shadow:0 0 12px rgba(0,212,255,.3)}
-    .btn-secondary{background:#1e1b4b;border-color:#4c3d7c;color:#dcd6f7}
-    .btn-danger{background:#421b37;border-color:#6b2e5c;color:#fddde4}
-    .pill{border-color:#423469;background:#1c1633}
-    th,td{border-bottom-color:#342854} th{color:#9e8fd0}
-    .row-hover:hover{background:#251a42}
-    .skeleton{color:#7c6ea8}
-    input[type=range]{accent-color:#00d4ff}
-    .purple-neon{color:#00d4ff;text-shadow:0 0 6px rgba(0,212,255,.35)}
-    .robot-panel{border-color:rgba(168,85,247,.42);box-shadow:0 12px 35px #0005,0 0 16px rgba(168,85,247,.09)}
-    .robot-lock{background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:10px;padding:10px}
-    .robot-disabled{opacity:.58;cursor:not-allowed}
-
   </style>
 </head>
 <body>
@@ -55,7 +29,7 @@
     <div class="panel w-full max-w-md p-7">
       <div class="flex items-center gap-3 mb-6">
         <div class="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-2xl font-black tracking-wide">PURPLE <span style="color:#00d4ff;text-shadow:0 0 8px rgba(0,212,255,.4)">SIGNAL</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
+        <div><h1 class="text-2xl font-black tracking-wide">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
       </div>
       <div class="flex gap-2 mb-5">
         <button id="mode-login" class="btn btn-primary flex-1" type="button">Entrar</button>
@@ -76,7 +50,7 @@
     <header class="header-wrap flex justify-between gap-4 mb-5">
       <div class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span style="color:#00d4ff;text-shadow:0 0 8px rgba(0,212,255,.4)">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
@@ -99,37 +73,6 @@
           </form>
           <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
         </div>
-        <div class="panel robot-panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2" style="color:#c084fc"><i data-lucide="bot" class="w-4"></i> Robô Automático</h2>
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-sm">Status do robô</span>
-              <span id="robot-status" class="pill flex items-center gap-2"><span class="dot"></span><span>Backend não integrado</span></span>
-            </div>
-            <label class="flex items-center gap-2 text-xs muted robot-disabled">
-              <input id="auto-trade" type="checkbox" class="w-4 h-4" style="accent-color:#a855f7" disabled>
-              Ativar operações automáticas
-            </label>
-            <div class="grid grid-cols-2 gap-2">
-              <button id="robot-start" class="btn btn-success text-sm robot-disabled" type="button" disabled>▶ Iniciar Robô</button>
-              <button id="robot-stop" class="btn btn-danger text-sm robot-disabled" type="button" disabled>⏹ Parar Robô</button>
-              <button id="robot-pause" class="btn btn-secondary text-sm robot-disabled" type="button" disabled>⏸ Pausar</button>
-              <button id="robot-reset" class="btn btn-secondary text-sm robot-disabled" type="button" disabled>↻ Resetar</button>
-            </div>
-            <div class="robot-lock">
-              <h3 class="text-xs font-semibold mb-2" style="color:#c084fc">🔒 Travas de segurança</h3>
-              <div id="robot-travas" class="text-xs muted space-y-1">
-                <div>Aguardando integração das regras de risco no servidor.</div>
-              </div>
-            </div>
-            <div class="text-xs muted space-y-1">
-              <div>Última verificação: <span id="robot-last-check">—</span></div>
-              <div>Modo de operação: <span id="robot-mode">Indisponível</span></div>
-            </div>
-            <p class="text-xs muted">Painel visual preparado. Os comandos permanecem bloqueados até existir uma API de robô confirmada no backend. Isso evita simular operações ou enviar ordens por rotas não verificadas.</p>
-          </div>
-        </div>
-
         <div class="panel p-4">
           <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
           <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
@@ -168,13 +111,10 @@
         <div class="panel p-4">
           <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
           <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3 text-xs">
+          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Corpo do candle</div><strong id="c-body">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Sombra superior</div><strong id="c-upper-shadow">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Sombra inferior</div><strong id="c-lower-shadow">—</strong></div>
           </div>
         </div>
       </section>
@@ -352,7 +292,7 @@
     }));
     if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
   }
-  function renderHero(x){
+   function renderHero(x){
     const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
     $('hero-asset').textContent=asset;$('hero-direction').textContent=dir||'—';
     $('hero-direction').className='text-xl font-black '+(dir.includes('PUT')||dir.includes('SELL')?'signal-put':dir?'signal-call':'');
@@ -503,3 +443,5 @@
 </script>
 </body>
 </html>
+
+ 
