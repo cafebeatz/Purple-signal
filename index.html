@@ -132,12 +132,33 @@
 
         <div class="panel p-4">
           <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
-          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
+          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1" selected>M1</option><option value="M5">M5</option><option value="M15">M15</option></select></div>
           <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
           <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
+          <div class="mt-4 rounded-xl border border-violet-500/30 bg-violet-950/20 p-3">
+            <div class="text-xs muted">Contagem regressiva da vela atual</div>
+            <div id="candle-countdown" class="text-2xl font-black mt-1" aria-live="off">--:--</div>
+            <div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div>
+          </div>
+          <div class="mt-4 border-t border-slate-700 pt-3 space-y-3">
+            <h3 class="text-sm font-bold" style="color:#c084fc">Limites diários do robô</h3>
+            <label class="flex items-center gap-2 text-xs"><input id="auto-trade-enabled" type="checkbox" class="w-4 h-4" style="accent-color:#a855f7"> Permitir novas ordens automáticas</label>
+            <div><label for="trade-amount" class="text-xs muted">Valor por operação</label><input id="trade-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label for="target-gain" class="text-xs muted">Meta de ganho diário</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0" placeholder="0 = desativada"></div>
+              <div><label for="max-loss" class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0" placeholder="0 = desativado"></div>
+            </div>
+            <div class="rounded-lg bg-slate-950/60 p-3 text-xs space-y-1">
+              <div class="flex justify-between"><span class="muted">Resultado realizado hoje</span><strong id="daily-profit">0,00</strong></div>
+              <div class="flex justify-between"><span class="muted">Ganhos do dia</span><strong id="daily-gain" class="text-emerald-300">0,00</strong></div>
+              <div class="flex justify-between"><span class="muted">Perdas do dia</span><strong id="daily-loss" class="text-rose-300">0,00</strong></div>
+              <div class="flex justify-between"><span class="muted">Meta / limite</span><strong id="daily-limits">Desativados</strong></div>
+              <div class="flex justify-between"><span class="muted">Proteção diária</span><strong id="risk-status">Aguardando configuração</strong></div>
+            </div>
+            <p class="text-xs muted">Os limites consideram o lucro/prejuízo realizado registrado pelo servidor. Zero desativa o respectivo limite. Ao atingir uma trava, novas ordens automáticas são bloqueadas; operações já abertas continuam sendo acompanhadas.</p>
+          </div>
           <div class="mt-4 flex gap-2"><button id="scan-start" class="btn btn-primary flex-1" type="button" disabled>Iniciar</button><button id="scan-stop" class="btn btn-danger flex-1 hidden" type="button">Parar</button></div>
           <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-          <p class="text-xs muted mt-3">A execução automática de ordens permanece desativada nesta interface.</p>
         </div>
         <div class="panel p-4">
           <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
@@ -168,7 +189,7 @@
         <div class="panel p-4">
           <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
           <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
-          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3 text-xs">
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
@@ -195,7 +216,7 @@
   const $=id=>document.getElementById(id);
   let authMode='login', token=localStorage.getItem('purple_signal_api_token')||'';
   let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
-  let pollTimers=[];
+  let pollTimers=[], candleCloseAt=0;
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
   const safe=(v)=>String(v??'—');
   const dateFmt=(v)=>{
@@ -299,8 +320,10 @@
     }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
   }
   $('refresh-balance').addEventListener('click',async()=>{
-    try{const s=await api('/broker/status');const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
+    const btn=$('refresh-balance');btn.disabled=true;const old=btn.textContent;btn.textContent='Atualizando…';
+    try{const x=await api('/broker/refresh-balance',{method:'POST'});updateBrokerUI(x);toast('Saldo atualizado pela corretora.')}
     catch(err){toast(err.message)}
+    finally{btn.textContent=old;btn.disabled=!brokerConnected}
   });
 
   $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
@@ -311,7 +334,9 @@
   $('scan-start').addEventListener('click',async()=>{
     try{
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:2
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),
+        auto_trade:$('auto-trade-enabled').checked,amount:Number($('trade-amount').value||2),
+        target_gain:Number($('target-gain').value||0),max_loss:Number($('max-loss').value||0)
       })});
       scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
       await refreshScan();
@@ -383,37 +408,82 @@
   }
   function renderIndicators(data){
     const target=$('indicator-details');
-    if(data===null||data===undefined||data===''){
-      target.textContent='A API não retornou valores detalhados dos indicadores para este sinal.';
+    if(!data || typeof data!=='object'){
+      target.innerHTML='<div class="skeleton">Aguardando um sinal válido do scanner para mostrar os indicadores.</div>';
       return;
     }
-    const entries=[];
-    function collect(value,label,depth=0){
-      if(depth>3||value===null||value===undefined)return;
-      if(Array.isArray(value)){
-        value.forEach((item,index)=>collect(item,`${label} ${index+1}`,depth+1));
-        return;
-      }
-      if(typeof value==='object'){
-        Object.entries(value).forEach(([key,item])=>collect(item,label?`${label} · ${humanizeKey(key)}`:humanizeKey(key),depth+1));
-        return;
-      }
-      const formatted=formatIndicatorValue(value);
-      if(formatted!==null)entries.push({label:label||'Indicador',value:formatted});
-    }
-    collect(data,'');
-    if(!entries.length){
-      target.textContent='A API retornou dados, mas não há valores de indicadores em formato reconhecível.';
-      return;
-    }
-    target.innerHTML=entries.map(item=>`<div class="flex items-center justify-between gap-3 py-2 border-b border-slate-700/60 last:border-0"><span class="muted">${escapeHtml(item.label)}</span><strong class="text-slate-100 text-right break-all">${escapeHtml(item.value)}</strong></div>`).join('');
+    const groups=[
+      {title:'Tendência e médias',items:[
+        ['EMA 9','ema9'],['EMA 21','ema21'],['EMA 100','ema100'],
+        ['Confirmação EMA','ema_confirmation'],['Gatilho EMA','ema_trigger'],
+        ['Média SMA 9','sma9'],['Média SMA 21','sma21']
+      ]},
+      {title:'Força e direção',items:[
+        ['RSI (14)','rsi'],['Status RSI','rsi_status'],['ADX','adx'],
+        ['Status ADX','adx_status'],['DI+','di_plus'],['DI−','di_minus'],
+        ['Leitura Didi','didi_status']
+      ]},
+      {title:'Fluxo estimado',items:[
+        ['Direção do fluxo','flow_direction'],['Pressão do fluxo','flow_pressure'],
+        ['Força do fluxo','flow_strength'],['Fluxo dos candles','candle_flow'],
+        ['Fluxo ponderado por volume','candle_volume_flow'],
+        ['Fluxo de mercado','market_flow'],['Fluxo de volume','market_volume_flow'],
+        ['Fonte do fluxo','flow_source']
+      ]},
+      {title:'Confirmações do cérebro',items:[
+        ['Direção da tendência','trend_direction'],['Força da tendência','trend_strength'],
+        ['Confirmações de entrada','entry_confirmations'],['Pontuação do cérebro','brain_score'],
+        ['Filtro de entrada','entry_filter_passed'],['Motivos de bloqueio','entry_filter_reasons']
+      ]},
+      {title:'Candle e absorção',items:[
+        ['Proporção do corpo','candle_body_ratio'],['Absorção detectada','absorption_detected'],
+        ['Força da absorção','absorption_strength'],['Relação de volume','volume_ratio'],
+        ['Impacto estimado','price_impact_estimate'],['Deslocamento em ATR','displacement_atr']
+      ]}
+    ];
+    const fmt=v=>{
+      if(v===null||v===undefined||v==='')return '—';
+      if(typeof v==='boolean')return v?'Sim':'Não';
+      if(Array.isArray(v))return v.length?v.join(', '):'Nenhum';
+      if(typeof v==='number')return Number.isFinite(v)?v.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
+      if(typeof v==='object')return JSON.stringify(v);
+      return String(v);
+    };
+    const card=(label,value)=>{
+      if(value===undefined||value===null||value==='')return '';
+      return `<div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-2 min-w-0">
+        <div class="text-[11px] muted">${escapeHtml(label)}</div>
+        <div class="text-sm font-bold mt-1 break-words">${escapeHtml(fmt(value))}</div>
+      </div>`;
+    };
+    target.innerHTML=groups.map(group=>{
+      const rows=group.items.map(([label,key])=>card(label,data[key])).filter(Boolean).join('');
+      return rows?`<section class="mb-4"><h4 class="text-xs uppercase tracking-wider purple-neon font-bold mb-2">${escapeHtml(group.title)}</h4><div class="grid grid-cols-2 gap-2">${rows}</div></section>`:'';
+    }).join('');
+    if(!target.innerHTML)target.innerHTML='<div class="skeleton">A API retornou o sinal, mas não encontrou os campos esperados dos indicadores.</div>';
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function updateCandleCountdown(){
+    if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}
+    const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));
+    $('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0');
+  }
   async function refreshScan(){
     try{
       const s=await api('/scan/state');
       scanning=s.running===true;updateScanUI();
       $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
+      candleCloseAt=Number(s.candle_close_ts||0);
+      $('candle-countdown-note').textContent=candleCloseAt?'Fechamento estimado da vela '+(s.timeframe||$('timeframe').value)+' · horário do servidor':'Inicie o scanner para sincronizar a contagem.';
+      updateCandleCountdown();
+      const pnl=Number(s.daily_profit||0);
+      $('daily-profit').textContent=pnl.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      $('daily-profit').className=pnl>0?'text-emerald-300':pnl<0?'text-rose-300':'';
+      $('daily-gain').textContent=Number(s.daily_gain||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      $('daily-loss').textContent=Number(s.daily_loss||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      $('daily-limits').textContent=`Meta ${fmt(s.target_gain||0,2)} · Perda ${fmt(s.max_loss||0,2)}`;
+      $('risk-status').textContent=s.risk_halted?'TRAVADO: '+(s.risk_reason||'limite atingido'):(s.auto_trade?'Ativo · monitorando limites':'Não executando ordens');
+      $('risk-status').className=s.risk_halted?'text-rose-300':'text-slate-200';
       const ranking=normalizeRanking(s);
       renderRanking(ranking);
       if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
@@ -431,7 +501,18 @@
       $('hero-price').textContent=fmt(c.close,5);
       $('hero-candle-time').textContent=dateFmt(c.ts);
       $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
-      $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. MA9: ${last(data.ma9)} · MA21: ${last(data.ma21)}.`;
+      const body=Math.abs(Number(c.close)-Number(c.open));
+      const upperShadow=Number(c.high)-Math.max(Number(c.open),Number(c.close));
+      const lowerShadow=Math.min(Number(c.open),Number(c.close))-Number(c.low);
+      $('c-body').textContent=fmt(body,6);
+      $('c-upper-shadow').textContent=fmt(Math.max(0,upperShadow),6);
+      $('c-lower-shadow').textContent=fmt(Math.max(0,lowerShadow),6);
+      $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. SMA 9: ${last(data.ma9)} · SMA 21: ${last(data.ma21)}.`;
+      if(selectedSignal && selectedSignal.indicators){
+        selectedSignal.indicators.sma9=Array.isArray(data.ma9)&&data.ma9.length?data.ma9[data.ma9.length-1].value:null;
+        selectedSignal.indicators.sma21=Array.isArray(data.ma21)&&data.ma21.length?data.ma21[data.ma21.length-1].value:null;
+        renderIndicators(selectedSignal.indicators);
+      }
     }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
   }
   function last(arr){return Array.isArray(arr)&&arr.length?fmt(arr[arr.length-1],5):'—'}
@@ -451,7 +532,7 @@
   async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory()])}
   function startPolling(){
     stopPolling();
-    pollTimers=[setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
+    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
   }
   function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
   restoreSession();
