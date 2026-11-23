@@ -1,8 +1,25 @@
 """Processo isolado por sessão de corretora (a lib iqoptionapi usa busy-wait e estado global)."""
 from __future__ import annotations
 
+import logging
 import time
 import traceback
+
+# Os registros aparecem nos logs do serviço (por exemplo, no Render).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [broker_worker] %(message)s",
+    force=True,
+)
+logger = logging.getLogger("broker_worker")
+
+
+def _log_stage(message: str, started: float | None = None) -> None:
+    if started is None:
+        logger.info("%s", message)
+    else:
+        logger.info("%s (%.2fs)", message, time.monotonic() - started)
+
 
 HOSTS = {
     "iqoption": {"ws": "wss://iqoption.com/echo/websocket", "https": "https://iqoption.com/api",
@@ -17,7 +34,6 @@ def _patch_hosts(broker: str) -> None:
         return
     import iqoptionapi.api as api_mod
     import iqoptionapi.stable_api as stable_mod
-
     h = HOSTS[broker]
     base = api_mod.IQOptionAPI
 
@@ -35,19 +51,50 @@ def _patch_hosts(broker: str) -> None:
 
 
 def _open_assets(client) -> list[str]:
+    """Retorna ativos binários/turbo habilitados, incluindo mercado aberto e OTC."""
     from iqoptionapi.constants import ACTIVES
 
     data = client.get_all_init_v2() or {}
-    names: list[str] = []
+    active_names = set(ACTIVES.keys())
+    names: set[str] = set()
+    rejected = 0
+
     for kind in ("turbo", "binary"):
-        for active in (data.get(kind, {}) or {}).get("actives", {}).values():
-            try:
-                name = str(active["name"]).split(".")[1]
-            except Exception:
+        actives = (data.get(kind, {}) or {}).get("actives", {}) or {}
+
+        for active in actives.values():
+            if not isinstance(active, dict):
+                rejected += 1
                 continue
-            if active.get("enabled") and not active.get("is_suspended") and name in ACTIVES:
-                names.append(name)
-    return sorted(set(names))
+
+            if not active.get("enabled") or active.get("is_suspended"):
+                continue
+
+            raw_name = active.get("name")
+            if not raw_name:
+                rejected += 1
+                continue
+
+            # Divide apenas no primeiro ponto e aceita nomes sem prefixo.
+            raw_name = str(raw_name).strip()
+            candidate = raw_name.split(".", 1)[-1].strip()
+
+            if candidate in active_names:
+                names.add(candidate)
+            elif raw_name in active_names:
+                names.add(raw_name)
+            else:
+                rejected += 1
+
+    result = sorted(names)
+    open_count = sum("OTC" not in name.upper() for name in result)
+    otc_count = len(result) - open_count
+    logger.info(
+        "Ativos retornados pela API: total=%d, mercado_aberto=%d, otc=%d, "
+        "nomes_nao_reconhecidos=%d",
+        len(result), open_count, otc_count, rejected
+    )
+    return result
 
 
 def _candles(client, asset: str, tf: int, count: int):
@@ -60,34 +107,95 @@ def _candles(client, asset: str, tf: int, count: int):
 
 
 def worker_main(conn, broker: str, email: str, password: str, account_type: str) -> None:
+    stage = "inicialização"
     try:
-        _patch_hosts(broker)
-        from iqoptionapi.stable_api import IQ_Option
+        _log_stage(f"Worker iniciado; corretora={broker}; conta={account_type}")
 
+        stage = "preparação dos hosts"
+        started = time.monotonic()
+        _patch_hosts(broker)
+        _log_stage("Preparação dos hosts concluída", started)
+
+        stage = "importação da biblioteca IQ Option"
+        started = time.monotonic()
+        from iqoptionapi.stable_api import IQ_Option
+        _log_stage("Biblioteca IQ Option importada", started)
+
+        stage = "criação do cliente"
+        started = time.monotonic()
         client = IQ_Option(email, password)
+        _log_stage("Cliente IQ Option criado", started)
+
+        stage = "login / client.connect()"
+        started = time.monotonic()
+        logger.info("Iniciando client.connect()")
         ok, reason = client.connect()
+        _log_stage(f"client.connect() terminou; ok={ok}", started)
         if not ok:
+            logger.error("Login recusado/falhou: %s", reason)
             conn.send({"ok": False, "error": str(reason)})
             return
-        client.change_balance("PRACTICE" if account_type == "demo" else "REAL")
-        info = {"balance": float(client.get_balance()), "currency": str(client.get_currency() or "USD")}
+
+        stage = "seleção da conta"
+        started = time.monotonic()
+        balance_mode = "PRACTICE" if account_type == "demo" else "REAL"
+        logger.info("Iniciando change_balance(%s)", balance_mode)
+        client.change_balance(balance_mode)
+        _log_stage("Troca de conta concluída", started)
+
+        stage = "consulta do saldo"
+        started = time.monotonic()
+        balance = float(client.get_balance())
+        _log_stage("Consulta do saldo concluída", started)
+
+        stage = "consulta da moeda"
+        started = time.monotonic()
+        currency = str(client.get_currency() or "USD")
+        _log_stage("Consulta da moeda concluída", started)
+
+        info = {"balance": balance, "currency": currency}
+
+        stage = "carregamento dos ativos"
+        started = time.monotonic()
         try:
+            logger.info("Iniciando carregamento dos ativos")
             info["assets"] = _open_assets(client)
+            _log_stage(
+                "Carregamento dos ativos concluído; "
+                f"total={len(info['assets'])}, "
+                f"mercado_aberto={sum('OTC' not in a.upper() for a in info['assets'])}, "
+                f"otc={sum('OTC' in a.upper() for a in info['assets'])}",
+                started
+            )
         except Exception:
             info["assets"] = []
+            logger.exception("Falha ao carregar ativos; seguindo sem lista de ativos")
+
+        stage = "envio da confirmação ao servidor"
+        started = time.monotonic()
         conn.send({"ok": True, **info})
+        _log_stage("Confirmação de conexão enviada ao servidor", started)
+        logger.info("Inicialização da sessão concluída")
+
     except Exception as e:  # noqa: BLE001
-        conn.send({"ok": False, "error": f"{e}"})
+        logger.exception("Erro na etapa '%s': %s", stage, e)
+        try:
+            conn.send({"ok": False, "error": f"Falha na etapa '{stage}': {e}",
+                       "trace": traceback.format_exc()[-1000:]})
+        except Exception:
+            logger.exception("Não foi possível enviar o erro ao processo principal")
         return
 
     while True:
         try:
             cmd = conn.recv()
         except EOFError:
+            logger.info("Canal com o processo principal encerrado")
             break
         op = cmd.get("op")
         try:
             if op == "close":
+                logger.info("Comando de encerramento recebido")
                 break
             if op == "candles_many":
                 out = {}
@@ -97,6 +205,7 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
                         if c:
                             out[asset] = c
                     except Exception:
+                        logger.exception("Falha ao buscar candles do ativo %s", asset)
                         continue
                 conn.send({"ok": True, "data": out})
             elif op == "balance":
@@ -121,8 +230,11 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
             else:
                 conn.send({"ok": False, "error": f"op desconhecida {op}"})
         except Exception as e:  # noqa: BLE001
+            logger.exception("Erro ao processar comando '%s': %s", op, e)
             conn.send({"ok": False, "error": f"{e}", "trace": traceback.format_exc()[-500:]})
+
     try:
         client.close_connect()
+        logger.info("Conexão com a corretora encerrada")
     except Exception:
-        pass
+        logger.exception("Erro ao encerrar conexão com a corretora")
