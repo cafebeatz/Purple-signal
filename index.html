@@ -132,12 +132,33 @@
 
         <div class="panel p-4">
           <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
-          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1">M1</option><option value="M5" selected>M5</option><option value="M15">M15</option></select></div>
+          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1" selected>M1</option><option value="M5">M5</option><option value="M15">M15</option></select></div>
           <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
           <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
+          <div class="mt-4 rounded-xl border border-violet-500/30 bg-violet-950/20 p-3">
+            <div class="text-xs muted">Contagem regressiva da vela atual</div>
+            <div id="candle-countdown" class="text-2xl font-black mt-1" aria-live="off">--:--</div>
+            <div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div>
+          </div>
+          <div class="mt-4 border-t border-slate-700 pt-3 space-y-3">
+            <h3 class="text-sm font-bold" style="color:#c084fc">Limites diários do robô</h3>
+            <label class="flex items-center gap-2 text-xs"><input id="auto-trade-enabled" type="checkbox" class="w-4 h-4" style="accent-color:#a855f7"> Permitir novas ordens automáticas</label>
+            <div><label for="trade-amount" class="text-xs muted">Valor por operação</label><input id="trade-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label for="target-gain" class="text-xs muted">Meta de ganho diário</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0" placeholder="0 = desativada"></div>
+              <div><label for="max-loss" class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0" placeholder="0 = desativado"></div>
+            </div>
+            <div class="rounded-lg bg-slate-950/60 p-3 text-xs space-y-1">
+              <div class="flex justify-between"><span class="muted">Resultado realizado hoje</span><strong id="daily-profit">0,00</strong></div>
+              <div class="flex justify-between"><span class="muted">Ganhos do dia</span><strong id="daily-gain" class="text-emerald-300">0,00</strong></div>
+              <div class="flex justify-between"><span class="muted">Perdas do dia</span><strong id="daily-loss" class="text-rose-300">0,00</strong></div>
+              <div class="flex justify-between"><span class="muted">Meta / limite</span><strong id="daily-limits">Desativados</strong></div>
+              <div class="flex justify-between"><span class="muted">Proteção diária</span><strong id="risk-status">Aguardando configuração</strong></div>
+            </div>
+            <p class="text-xs muted">Os limites consideram o lucro/prejuízo realizado registrado pelo servidor. Zero desativa o respectivo limite. Ao atingir uma trava, novas ordens automáticas são bloqueadas; operações já abertas continuam sendo acompanhadas.</p>
+          </div>
           <div class="mt-4 flex gap-2"><button id="scan-start" class="btn btn-primary flex-1" type="button" disabled>Iniciar</button><button id="scan-stop" class="btn btn-danger flex-1 hidden" type="button">Parar</button></div>
           <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-          <p class="text-xs muted mt-3">A execução automática de ordens permanece desativada nesta interface.</p>
         </div>
         <div class="panel p-4">
           <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
@@ -172,9 +193,6 @@
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
             <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Corpo do candle</div><strong id="c-body">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Sombra superior</div><strong id="c-upper-shadow">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Sombra inferior</div><strong id="c-lower-shadow">—</strong></div>
           </div>
         </div>
       </section>
@@ -198,7 +216,7 @@
   const $=id=>document.getElementById(id);
   let authMode='login', token=localStorage.getItem('purple_signal_api_token')||'';
   let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
-  let pollTimers=[];
+  let pollTimers=[], candleCloseAt=0;
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
   const safe=(v)=>String(v??'—');
   const dateFmt=(v)=>{
@@ -302,8 +320,10 @@
     }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
   }
   $('refresh-balance').addEventListener('click',async()=>{
-    try{const s=await api('/broker/status');const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
+    const btn=$('refresh-balance');btn.disabled=true;const old=btn.textContent;btn.textContent='Atualizando…';
+    try{const x=await api('/broker/refresh-balance',{method:'POST'});updateBrokerUI(x);toast('Saldo atualizado pela corretora.')}
     catch(err){toast(err.message)}
+    finally{btn.textContent=old;btn.disabled=!brokerConnected}
   });
 
   $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
@@ -314,7 +334,9 @@
   $('scan-start').addEventListener('click',async()=>{
     try{
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:2
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),
+        auto_trade:$('auto-trade-enabled').checked,amount:Number($('trade-amount').value||2),
+        target_gain:Number($('target-gain').value||0),max_loss:Number($('max-loss').value||0)
       })});
       scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
       await refreshScan();
@@ -441,11 +463,27 @@
     if(!target.innerHTML)target.innerHTML='<div class="skeleton">A API retornou o sinal, mas não encontrou os campos esperados dos indicadores.</div>';
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function updateCandleCountdown(){
+    if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}
+    const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));
+    $('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0');
+  }
   async function refreshScan(){
     try{
       const s=await api('/scan/state');
       scanning=s.running===true;updateScanUI();
       $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
+      candleCloseAt=Number(s.candle_close_ts||0);
+      $('candle-countdown-note').textContent=candleCloseAt?'Fechamento estimado da vela '+(s.timeframe||$('timeframe').value)+' · horário do servidor':'Inicie o scanner para sincronizar a contagem.';
+      updateCandleCountdown();
+      const pnl=Number(s.daily_profit||0);
+      $('daily-profit').textContent=pnl.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      $('daily-profit').className=pnl>0?'text-emerald-300':pnl<0?'text-rose-300':'';
+      $('daily-gain').textContent=Number(s.daily_gain||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      $('daily-loss').textContent=Number(s.daily_loss||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      $('daily-limits').textContent=`Meta ${fmt(s.target_gain||0,2)} · Perda ${fmt(s.max_loss||0,2)}`;
+      $('risk-status').textContent=s.risk_halted?'TRAVADO: '+(s.risk_reason||'limite atingido'):(s.auto_trade?'Ativo · monitorando limites':'Não executando ordens');
+      $('risk-status').className=s.risk_halted?'text-rose-300':'text-slate-200';
       const ranking=normalizeRanking(s);
       renderRanking(ranking);
       if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
@@ -494,7 +532,7 @@
   async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory()])}
   function startPolling(){
     stopPolling();
-    pollTimers=[setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
+    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
   }
   function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
   restoreSession();
