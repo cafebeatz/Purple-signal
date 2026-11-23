@@ -1,543 +1,1504 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Purple Signal — Terminal de Sinais</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <style>
-    :root{color-scheme:dark;--bg:#080b12;--panel:#101725;--line:#243044;--muted:#8b9ab0;--cyan:#22d3ee;--green:#34d399;--red:#fb7185;--gold:#fbbf24}
-    *{box-sizing:border-box} body{margin:0;background:radial-gradient(ellipse at top,#172235 0,#080b12 48%);color:#e5edf8;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-    .panel{background:linear-gradient(145deg,rgba(19,29,45,.96),rgba(12,18,29,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0005}
-    .muted{color:var(--muted)} .field{width:100%;background:#080e18;border:1px solid #2a3950;border-radius:9px;padding:10px 12px;color:#e5edf8;outline:none}
-    .field:focus{border-color:var(--cyan)} .btn{border-radius:9px;padding:10px 14px;font-weight:700;transition:.15s}
-    .btn-primary{background:linear-gradient(90deg,#0891b2,#06b6d4);color:#04131a}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
-    .btn-secondary{background:#1b293b;border:1px solid #33445c;color:#dce8f8}.btn-danger{background:#4a1f2a;border:1px solid #713344;color:#fecdd3}
-    .pill{border:1px solid #33445c;background:#111c2b;border-radius:999px;padding:4px 9px;font-size:11px}
-    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.ok{background:#34d399;box-shadow:0 0 10px #34d39988}.dot.bad{background:#fb7185}
-    .signal-call{color:#34d399}.signal-put{color:#fb7185}
-    .row-hover:hover{background:#172438}.hidden{display:none!important}
-    .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{padding:10px 12px;border-bottom:1px solid #253247;text-align:left;font-size:12px} th{color:#91a3bb;font-weight:600}
-    .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
-    input[type=range]{accent-color:#22d3ee}
-    @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
+"""
+Backend FastAPI - Purple Signal.
 
-    /* Purple Signal — identidade visual violeta/neon */
-    :root{
-      color-scheme:dark;
-      --bg:#0b0814;--panel:#150f28;--line:#3b2e5f;--muted:#a596c9;
-      --cyan:#00d4ff;--green:#34d399;--red:#fb7185;--gold:#fbbf24;
-      --neon-purple:#a855f7;
+Integração do painel Purple Signal:
+- Autenticação e conexão da corretora.
+- Scanner com candles fechados.
+- Robô automático com pausa, parada e reset de sessão.
+- Limites diários calculados sobre lucro/prejuízo realizado.
+- Placar separado por sessão e arquivo pesquisável de sessões anteriores.
+- Atualização explícita do saldo pela corretora.
+
+IMPORTANTE:
+A inicialização preserva o histórico existente de sinais. Nenhuma rotina de
+startup deve apagar documentos da coleção "signals".
+"""
+
+from __future__ import annotations
+
+from dotenv import load_dotenv
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+import asyncio
+import logging
+import os
+import uuid
+from contextlib import suppress
+from datetime import datetime, timedelta, timezone, time
+from typing import Optional
+
+import bcrypt
+import jwt
+import pandas as pd
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr, Field
+from pymongo import ASCENDING, DESCENDING, IndexModel
+from starlette.middleware.cors import CORSMiddleware
+
+from broker import (
+    SIM_PAYOUT,
+    TIMEFRAME_SECONDS,
+    BrokerSession,
+    check_trade,
+    connect_broker,
+    disconnect_broker,
+    get_candles,
+    get_candles_many,
+    place_trade,
+    refresh_balance,
+)
+from strategy import analyze_candles, sma
+
+
+# ---------------------------------------------------------------------------
+# Infraestrutura
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("purple_signal")
+
+mongo_url = os.environ["MONGO_URL"]
+client = AsyncIOMotorClient(mongo_url)
+db = client[os.environ["DB_NAME"]]
+
+JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_ALG = "HS256"
+ACCESS_MIN = 60 * 24
+
+app = FastAPI(title="Purple Signal Analyst")
+api = APIRouter(prefix="/api")
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso_now() -> str:
+    return utc_now().isoformat()
+
+
+def parse_iso(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def new_session_id() -> str:
+    return str(uuid.uuid4())
+
+
+# ---------------------------------------------------------------------------
+# Modelos
+# ---------------------------------------------------------------------------
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=6)
+    name: str = Field(min_length=1, max_length=80)
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class BrokerConnectIn(BaseModel):
+    broker: str = Field(pattern="^(iqoption|polarium)$")
+    email: str = ""
+    password: str = ""
+    account_type: str = Field(default="demo", pattern="^(demo|real)$")
+    simulate: bool = False
+
+
+class ScanStartIn(BaseModel):
+    timeframe: str = Field(default="M1", pattern="^(M1|M5|M15)$")
+    min_confidence: int = Field(default=70, ge=50, le=99)
+    auto_trade: bool = False
+    amount: float = Field(default=2.0, ge=1, le=10000)
+    target_gain: float = Field(default=0.0, ge=0, le=100000000)
+    max_loss: float = Field(default=0.0, ge=0, le=100000000)
+
+
+class RobotConfigIn(BaseModel):
+    auto_trade: bool = True
+    amount: float = Field(default=2.0, ge=1, le=10000)
+    target_gain: float = Field(default=0.0, ge=0, le=100000000)
+    max_loss: float = Field(default=0.0, ge=0, le=100000000)
+
+
+class SessionStartIn(BaseModel):
+    reason: str = Field(default="Nova sessão iniciada", max_length=120)
+
+
+# ---------------------------------------------------------------------------
+# Autenticação
+# ---------------------------------------------------------------------------
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+def make_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "exp": utc_now() + timedelta(minutes=ACCESS_MIN),
+        "iat": utc_now(),
     }
-    body{background:radial-gradient(ellipse at top,#241840 0,#0b0814 48%);color:#e9e4f8}
-    .panel{background:linear-gradient(145deg,rgba(36,25,60,.96),rgba(18,12,35,.96));border-color:#3b2e5f;box-shadow:0 12px 35px #0005,0 0 12px rgba(168,85,247,.08)}
-    .field{background:#100a1f;border-color:#453570;color:#e9e4f8}
-    .field:focus{border-color:#00d4ff;box-shadow:0 0 0 2px rgba(0,212,255,.15),0 0 8px rgba(0,212,255,.25)}
-    .btn-primary{background:linear-gradient(90deg,#1e1b4b,#3b0763);color:#e0e7ff;border:1px solid rgba(0,212,255,.3);box-shadow:0 0 8px rgba(0,212,255,.15)}
-    .btn-primary:hover{box-shadow:0 0 12px rgba(0,212,255,.3)}
-    .btn-secondary{background:#1e1b4b;border-color:#4c3d7c;color:#dcd6f7}
-    .btn-danger{background:#421b37;border-color:#6b2e5c;color:#fddde4}
-    .pill{border-color:#423469;background:#1c1633}
-    th,td{border-bottom-color:#342854} th{color:#9e8fd0}
-    .row-hover:hover{background:#251a42}
-    .skeleton{color:#7c6ea8}
-    input[type=range]{accent-color:#00d4ff}
-    .purple-neon{color:#00d4ff;text-shadow:0 0 6px rgba(0,212,255,.35)}
-    .robot-panel{border-color:rgba(168,85,247,.42);box-shadow:0 12px 35px #0005,0 0 16px rgba(168,85,247,.09)}
-    .robot-lock{background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.25);border-radius:10px;padding:10px}
-    .robot-disabled{opacity:.58;cursor:not-allowed}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
-  </style>
-</head>
-<body>
-  <div id="login-screen" class="min-h-screen flex items-center justify-center p-4">
-    <div class="panel w-full max-w-md p-7">
-      <div class="flex items-center gap-3 mb-6">
-        <div class="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-2xl font-black tracking-wide">PURPLE <span style="color:#00d4ff;text-shadow:0 0 8px rgba(0,212,255,.4)">SIGNAL</span></h1><p class="text-xs muted">Terminal de análise e sinais</p></div>
-      </div>
-      <div class="flex gap-2 mb-5">
-        <button id="mode-login" class="btn btn-primary flex-1" type="button">Entrar</button>
-        <button id="mode-register" class="btn btn-secondary flex-1" type="button">Criar conta</button>
-      </div>
-      <form id="auth-form" class="space-y-3">
-        <div id="name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" autocomplete="name"></div>
-        <div><label class="text-xs muted">E-mail</label><input id="auth-email" class="field mt-1" type="email" required autocomplete="username"></div>
-        <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required autocomplete="current-password"></div>
-        <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
-      </form>
-      <p id="auth-error" class="text-sm text-rose-300 mt-4" role="alert"></p>
-      <p class="text-xs muted mt-5">A autenticação é validada pelo servidor. Sem resposta válida da API, o painel não libera o acesso.</p>
-    </div>
-  </div>
 
-  <main id="dashboard" class="hidden min-h-screen p-3 md:p-5">
-    <header class="header-wrap flex justify-between gap-4 mb-5">
-      <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span style="color:#00d4ff;text-shadow:0 0 8px rgba(0,212,255,.4)">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
-        <span class="pill flex items-center gap-2"><span id="broker-dot" class="dot"></span><span id="broker-status">Corretora desconectada</span></span>
-        <button id="logout-btn" class="btn btn-secondary text-sm" type="button">Sair</button>
-      </div>
-    </header>
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
 
-    <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
-      <aside class="space-y-4">
-        <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-cyan-300"></i> Conexão da corretora</h2>
-          <form id="broker-form" class="space-y-3">
-            <div><label class="text-xs muted">Corretora</label><select id="broker-name" class="field mt-1"><option value="iqoption">IQ Option</option><option value="polarium">Polarium</option></select></div>
-            <div><label class="text-xs muted">E-mail da corretora</label><input id="broker-email" class="field mt-1" type="email" autocomplete="off" required></div>
-            <div><label class="text-xs muted">Senha da corretora</label><input id="broker-password" class="field mt-1" type="password" autocomplete="new-password" required></div>
-            <div><label class="text-xs muted">Conta</label><select id="account-type" class="field mt-1"><option value="demo">Demo</option><option value="real">Real</option></select></div>
-            <button id="broker-connect" class="btn btn-primary w-full" type="submit">Conectar</button>
-            <button id="broker-disconnect" class="btn btn-secondary w-full hidden" type="button">Desconectar</button>
-          </form>
-          <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
-        </div>
-        <div class="panel robot-panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2" style="color:#c084fc"><i data-lucide="bot" class="w-4"></i> Robô Automático</h2>
-          <div class="space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="text-sm">Status do robô</span>
-              <span id="robot-status" class="pill flex items-center gap-2"><span class="dot"></span><span>Backend não integrado</span></span>
-            </div>
-            <label class="flex items-center gap-2 text-xs muted robot-disabled">
-              <input id="auto-trade" type="checkbox" class="w-4 h-4" style="accent-color:#a855f7" disabled>
-              Ativar operações automáticas
-            </label>
-            <div class="grid grid-cols-2 gap-2">
-              <button id="robot-start" class="btn btn-success text-sm robot-disabled" type="button" disabled>▶ Iniciar Robô</button>
-              <button id="robot-stop" class="btn btn-danger text-sm robot-disabled" type="button" disabled>⏹ Parar Robô</button>
-              <button id="robot-pause" class="btn btn-secondary text-sm robot-disabled" type="button" disabled>⏸ Pausar</button>
-              <button id="robot-reset" class="btn btn-secondary text-sm robot-disabled" type="button" disabled>↻ Resetar</button>
-            </div>
-            <div class="robot-lock">
-              <h3 class="text-xs font-semibold mb-2" style="color:#c084fc">🔒 Travas de segurança</h3>
-              <div id="robot-travas" class="text-xs muted space-y-1">
-                <div>Aguardando integração das regras de risco no servidor.</div>
-              </div>
-            </div>
-            <div class="text-xs muted space-y-1">
-              <div>Última verificação: <span id="robot-last-check">—</span></div>
-              <div>Modo de operação: <span id="robot-mode">Indisponível</span></div>
-            </div>
-            <p class="text-xs muted">Painel visual preparado. Os comandos permanecem bloqueados até existir uma API de robô confirmada no backend. Isso evita simular operações ou enviar ordens por rotas não verificadas.</p>
-          </div>
-        </div>
+    if not token:
+        raise HTTPException(status_code=401, detail="Não autenticado")
 
-        <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
-          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1" selected>M1</option><option value="M5">M5</option><option value="M15">M15</option></select></div>
-          <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
-          <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
-          <div class="mt-4 rounded-xl border border-violet-500/30 bg-violet-950/20 p-3">
-            <div class="text-xs muted">Contagem regressiva da vela atual</div>
-            <div id="candle-countdown" class="text-2xl font-black mt-1" aria-live="off">--:--</div>
-            <div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div>
-          </div>
-          <div class="mt-4 border-t border-slate-700 pt-3 space-y-3">
-            <h3 class="text-sm font-bold" style="color:#c084fc">Limites diários do robô</h3>
-            <label class="flex items-center gap-2 text-xs"><input id="auto-trade-enabled" type="checkbox" class="w-4 h-4" style="accent-color:#a855f7"> Permitir novas ordens automáticas</label>
-            <div><label for="trade-amount" class="text-xs muted">Valor por operação</label><input id="trade-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div>
-            <div class="grid grid-cols-2 gap-2">
-              <div><label for="target-gain" class="text-xs muted">Meta de ganho diário</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0" placeholder="0 = desativada"></div>
-              <div><label for="max-loss" class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0" placeholder="0 = desativado"></div>
-            </div>
-            <div class="rounded-lg bg-slate-950/60 p-3 text-xs space-y-1">
-              <div class="flex justify-between"><span class="muted">Resultado realizado hoje</span><strong id="daily-profit">0,00</strong></div>
-              <div class="flex justify-between"><span class="muted">Ganhos do dia</span><strong id="daily-gain" class="text-emerald-300">0,00</strong></div>
-              <div class="flex justify-between"><span class="muted">Perdas do dia</span><strong id="daily-loss" class="text-rose-300">0,00</strong></div>
-              <div class="flex justify-between"><span class="muted">Meta / limite</span><strong id="daily-limits">Desativados</strong></div>
-              <div class="flex justify-between"><span class="muted">Proteção diária</span><strong id="risk-status">Aguardando configuração</strong></div>
-            </div>
-            <p class="text-xs muted">Os limites consideram o lucro/prejuízo realizado registrado pelo servidor. Zero desativa o respectivo limite. Ao atingir uma trava, novas ordens automáticas são bloqueadas; operações já abertas continuam sendo acompanhadas.</p>
-          </div>
-          <div class="mt-4 flex gap-2"><button id="scan-start" class="btn btn-primary flex-1" type="button" disabled>Iniciar</button><button id="scan-stop" class="btn btn-danger flex-1 hidden" type="button">Parar</button></div>
-          <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-        </div>
-        <div class="panel p-4">
-          <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
-          <div id="balance" class="text-2xl font-black metric">—</div>
-          <div id="balance-note" class="text-xs muted mt-1">Nenhum saldo confirmado</div>
-          <button id="refresh-balance" class="btn btn-secondary w-full mt-3 text-sm" type="button" disabled>Atualizar saldo</button>
-        </div>
-      </aside>
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Sessão expirada")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
 
-      <section class="space-y-4 min-w-0">
-        <div class="panel p-5">
-          <div class="flex flex-wrap justify-between gap-3 items-start">
-            <div><div class="text-xs muted uppercase tracking-widest">Melhor oportunidade retornada pela API</div><div id="hero-asset" class="text-2xl md:text-3xl font-black mt-2">Aguardando scanner</div><div id="hero-meta" class="text-xs muted mt-1">Nenhum sinal confirmado</div></div>
-            <div class="text-right"><div id="hero-direction" class="text-xl font-black">—</div><div id="hero-confidence" class="text-sm muted">Confiança: —</div></div>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Último fechamento</div><div id="hero-price" class="font-bold metric mt-1">—</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M5</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
-          </div>
-          <p class="text-xs muted mt-4">O preço exibido é o fechamento da última vela retornada por <code>/api/chart</code>, não uma cotação tick a tick.</p>
-        </div>
-        <div class="panel p-4">
-          <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Histórico real de sinais</h2><span id="history-stats" class="text-xs muted">Sem operações registradas</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="6" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
-        </div>
-        <div class="panel p-4">
-          <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
-          <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
-          <div class="grid grid-cols-2 md:grid-cols-3 gap-2 mt-3 text-xs">
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
-          </div>
-        </div>
-      </section>
+    user = await db.users.find_one(
+        {"id": payload["sub"]},
+        {"_id": 0, "password_hash": 0},
+    )
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuário não encontrado")
+    return user
 
-      <aside class="panel p-4 min-w-0">
-        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
-        <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
-        <div class="border-t border-slate-700 mt-4 pt-4">
-          <h3 class="text-sm font-bold mb-2">Indicadores</h3>
-          <div id="indicator-details" class="text-xs muted space-y-1">Os indicadores serão exibidos em formato legível quando a API os retornar.</div>
-        </div>
-      </aside>
-    </section>
-    <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
-  </main>
 
-<script>
-(() => {
-  'use strict';
-  const API='/api';
-  const $=id=>document.getElementById(id);
-  let authMode='login', token=localStorage.getItem('purple_signal_api_token')||'';
-  let user=null, brokerConnected=false, scanning=false, selectedAsset='', selectedSignal=null;
-  let pollTimers=[], candleCloseAt=0;
-  const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
-  const safe=(v)=>String(v??'—');
-  const dateFmt=(v)=>{
-    if(v==null)return '—';
-    let d=typeof v==='number'?new Date(v<1e12?v*1000:v):new Date(v);
-    return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR');
-  };
-  function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');setTimeout(()=>$('toast').classList.add('hidden'),3500)}
-  async function api(path, options={}){
-    const headers={...(options.headers||{})};
-    if(options.body!==undefined)headers['Content-Type']='application/json';
-    if(token)headers.Authorization='Bearer '+token;
-    const res=await fetch(API+path,{...options,headers,credentials:'same-origin'});
-    let data={};try{data=await res.json()}catch(_){}
-    if(!res.ok)throw new Error(data.detail||data.message||data.error||`Erro HTTP ${res.status}`);
-    return data;
-  }
-  function showLogin(message=''){
-    stopPolling();$('dashboard').classList.add('hidden');$('login-screen').classList.remove('hidden');
-    $('auth-error').textContent=message;user=null;
-  }
-  function showDashboard(){
-    $('login-screen').classList.add('hidden');$('dashboard').classList.remove('hidden');
-    if(window.lucide)lucide.createIcons();
-  }
-  function setAuthMode(mode){
-    authMode=mode;const reg=mode==='register';
-    $('name-wrap').classList.toggle('hidden',!reg);
-    $('mode-login').className='btn '+(!reg?'btn-primary':'btn-secondary')+' flex-1';
-    $('mode-register').className='btn '+(reg?'btn-primary':'btn-secondary')+' flex-1';
-    $('auth-submit').textContent=reg?'Criar conta':'Entrar';
-    $('auth-password').autocomplete=reg?'new-password':'current-password';
-    $('auth-error').textContent='';
-  }
-  $('mode-login').addEventListener('click',()=>setAuthMode('login'));
-  $('mode-register').addEventListener('click',()=>setAuthMode('register'));
-  $('auth-form').addEventListener('submit',async e=>{
-    e.preventDefault();$('auth-submit').disabled=true;$('auth-error').textContent='Validando no servidor…';
-    const email=$('auth-email').value.trim(),password=$('auth-password').value;
-    try{
-      const body={email,password};
-      if(authMode==='register')body.name=$('auth-name').value.trim();
-      if(authMode==='register'&&!body.name)throw new Error('Informe seu nome.');
-      const result=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',body:JSON.stringify(body)});
-      if(result.token){token=result.token;localStorage.setItem('purple_signal_api_token',token)}
-      const me=await api('/auth/me');
-      user=me.user||me;
-      showDashboard();await refreshAll();startPolling();
-    }catch(err){token='';localStorage.removeItem('purple_signal_api_token');$('auth-error').textContent=err.message||'Não foi possível autenticar.'}
-    finally{$('auth-submit').disabled=false}
-  });
-  $('logout-btn').addEventListener('click',async()=>{
-    try{await api('/auth/logout',{method:'POST'})}catch(_){}
-    token='';localStorage.removeItem('purple_signal_api_token');showLogin('Sessão encerrada.');
-  });
-  async function restoreSession(){
-    try{const me=await api('/auth/me');user=me.user||me;showDashboard();await refreshAll();startPolling()}
-    catch(_){showLogin('Entre com sua conta para continuar.')}
-  }
+def set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=ACCESS_MIN * 60,
+        path="/",
+    )
 
-  $('broker-form').addEventListener('submit',async e=>{
-    e.preventDefault();
-    const btn=$('broker-connect');btn.disabled=true;btn.textContent='Conectando…';
-    $('broker-message').textContent='Aguardando confirmação da corretora pelo servidor…';
-    const password=$('broker-password').value;
-    try{
-      const result=await api('/broker/connect',{method:'POST',body:JSON.stringify({
-        broker:$('broker-name').value,email:$('broker-email').value.trim(),password,
-        account_type:$('account-type').value,simulate:false
-      })});
-      if(result.connected!==true||result.simulated===true)throw new Error(result.message||'O servidor não confirmou uma conexão real.');
-      brokerConnected=true;updateBrokerUI(result);
-      $('broker-message').textContent=result.message||'Conexão confirmada pelo servidor.';
-      toast('Corretora conectada conforme resposta da API.');
-      await refreshAll();
-    }catch(err){brokerConnected=false;updateBrokerUI();$('broker-message').textContent=err.message;toast(err.message)}
-    finally{$('broker-password').value='';btn.disabled=false;btn.textContent='Conectar'}
-  });
-  $('broker-disconnect').addEventListener('click',async()=>{
-    try{await api('/broker/disconnect',{method:'POST'});brokerConnected=false;updateBrokerUI();$('broker-message').textContent='Desconexão confirmada pelo servidor.';toast('Corretora desconectada.')}
-    catch(err){$('broker-message').textContent=err.message}
-  });
-  function updateBrokerUI(data={}){
-    $('broker-dot').className='dot '+(brokerConnected?'ok':'');
-    $('broker-status').textContent=brokerConnected?`${data.broker||$('broker-name').selectedOptions[0].text} conectado`:'Corretora desconectada';
-    $('broker-connect').classList.toggle('hidden',brokerConnected);
-    $('broker-disconnect').classList.toggle('hidden',!brokerConnected);
-    $('scan-start').disabled=!brokerConnected||scanning;
-    $('refresh-balance').disabled=!brokerConnected;
-    if(data.balance!==undefined){$('balance').textContent=`${fmt(data.balance,2)} ${safe(data.currency||'')}`;$('balance-note').textContent=`Conta ${safe(data.account_type||$('account-type').value).toUpperCase()} · resposta da API`}
-    else if(!brokerConnected){$('balance').textContent='—';$('balance-note').textContent='Nenhum saldo confirmado'}
-  }
-  async function refreshBroker(){
-    try{
-      const s=await api('/broker/status');
-      const session=s.session||s;
-      brokerConnected=session.connected===true&&!session.simulated;
-      updateBrokerUI(session);
-      if(session.connected===true&&session.balance!==undefined)updateBrokerUI(session);
-      if(s.connected===false||session.connected===false)brokerConnected=false;
-    }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
-  }
-  $('refresh-balance').addEventListener('click',async()=>{
-    const btn=$('refresh-balance');btn.disabled=true;const old=btn.textContent;btn.textContent='Atualizando…';
-    try{const x=await api('/broker/refresh-balance',{method:'POST'});updateBrokerUI(x);toast('Saldo atualizado pela corretora.')}
-    catch(err){toast(err.message)}
-    finally{btn.textContent=old;btn.disabled=!brokerConnected}
-  });
 
-  $('confidence').addEventListener('input',e=>$('confidence-label').textContent=e.target.value+'%');
-  $('timeframe').addEventListener('change',async()=>{
-    $('hero-timeframe').textContent=$('timeframe').value;
-    if(selectedAsset)await refreshChart();
-  });
-  $('scan-start').addEventListener('click',async()=>{
-    try{
-      const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),
-        auto_trade:$('auto-trade-enabled').checked,amount:Number($('trade-amount').value||2),
-        target_gain:Number($('target-gain').value||0),max_loss:Number($('max-loss').value||0)
-      })});
-      scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
-      await refreshScan();
-    }catch(err){$('scan-message').textContent=err.message;toast('Não foi possível iniciar: '+err.message)}
-  });
-  $('scan-stop').addEventListener('click',async()=>{
-    try{const result=await api('/scan/stop',{method:'POST'});scanning=false;updateScanUI();$('scan-message').textContent=result.message||'Scanner parado pelo servidor.';toast('Scanner parado.')}
-    catch(err){$('scan-message').textContent=err.message}
-  });
-  function updateScanUI(){
-    $('scan-start').classList.toggle('hidden',scanning);$('scan-stop').classList.toggle('hidden',!scanning);
-    $('scan-start').disabled=!brokerConnected||scanning;
-  }
-  function normalizeRanking(data){
-    if(Array.isArray(data))return data;
-    if(Array.isArray(data?.ranking))return data.ranking;
-    if(Array.isArray(data?.items))return data.items;
-    return [];
-  }
-  function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
-  function renderRanking(items){
-    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
-    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
-    $('scanner-list').innerHTML=items.map((x,i)=>{
-      const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-      const conf=x.confidence??x.confidence_pct??x.score;
-      const price=x.price??x.close;
-      return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${dir.includes('PUT')||dir.includes('SELL')?'text-rose-300':'text-emerald-300'}">${escapeHtml(dir||'—')}</span></div>
-        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
-      </button>`;
-    }).join('');
-    $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
-      const item=items[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
-    }));
-    if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
-  }
-  function renderHero(x){
-    const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-    $('hero-asset').textContent=asset;$('hero-direction').textContent=dir||'—';
-    $('hero-direction').className='text-xl font-black '+(dir.includes('PUT')||dir.includes('SELL')?'signal-put':dir?'signal-call':'');
-    const conf=x.confidence??x.confidence_pct??x.score;
-    $('hero-confidence').textContent='Confiança: '+(conf==null?'—':conf+'%');
-    $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
-    $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
-    $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators||x.analysis||x.metrics||null;
-    renderIndicators(ind);
-  }
-  function humanizeKey(key){
-    return String(key).replace(/[_-]+/g,' ').replace(/([a-z0-9])([A-Z])/g,'$1 $2')
-      .replace(/\bma(\d+)\b/gi,'Média móvel $1')
-      .replace(/\bema(\d+)\b/gi,'EMA $1')
-      .replace(/\brsi\b/gi,'RSI')
-      .replace(/\badx\b/gi,'ADX')
-      .replace(/\bdi ?plus\b/gi,'DI+')
-      .replace(/\bdi ?minus\b/gi,'DI−')
-      .replace(/\bmacd\b/gi,'MACD')
-      .replace(/\batr\b/gi,'ATR')
-      .replace(/\bvolume\b/gi,'Volume')
-      .replace(/\b[a-z]/g,c=>c.toUpperCase());
-  }
-  function formatIndicatorValue(value){
-    if(value===null||value===undefined||value==='')return '—';
-    if(typeof value==='boolean')return value?'Sim':'Não';
-    if(typeof value==='number')return Number.isFinite(value)?value.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
-    if(typeof value==='string')return value;
-    return null;
-  }
-  function renderIndicators(data){
-    const target=$('indicator-details');
-    if(!data || typeof data!=='object'){
-      target.innerHTML='<div class="skeleton">Aguardando um sinal válido do scanner para mostrar os indicadores.</div>';
-      return;
+# ---------------------------------------------------------------------------
+# Estado por usuário
+# ---------------------------------------------------------------------------
+
+_BROKER_SESSIONS: dict[str, BrokerSession] = {}
+_SCAN_TASKS: dict[str, asyncio.Task] = {}
+_SCAN_STATE: dict[str, dict] = {}
+
+
+def _state(user_id: str) -> dict:
+    state = _SCAN_STATE.get(user_id)
+    if state is None:
+        state = {
+            "running": False,
+            "paused": False,
+            "timeframe": "M1",
+            "min_confidence": 70,
+            "auto_trade": False,
+            "amount": 2.0,
+            "target_gain": 0.0,
+            "max_loss": 0.0,
+            "risk_halted": False,
+            "risk_reason": "",
+            "daily_profit": 0.0,
+            "last_scan_ts": None,
+            "best": None,
+            "ranking": [],
+            "candles": {},
+            "last_signal_candle": {},
+            "message": "Aguardando início do scanner",
+            "session_id": new_session_id(),
+            "session_started_at": iso_now(),
+            "session_reason": "Sessão inicial",
+        }
+        _SCAN_STATE[user_id] = state
+    return state
+
+
+async def _daily_realized_profit(user_id: str) -> float:
+    """Soma somente resultados monetários já realizados no dia UTC."""
+    start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+
+    docs = await db.signals.find(
+        {
+            "user_id": user_id,
+            "settled_at": {
+                "$gte": start.isoformat(),
+                "$lt": end.isoformat(),
+            },
+            "trade.profit": {"$ne": None},
+        },
+        {"_id": 0, "trade.profit": 1},
+    ).to_list(5000)
+
+    total = 0.0
+    for doc in docs:
+        try:
+            total += float((doc.get("trade") or {}).get("profit") or 0)
+        except (TypeError, ValueError):
+            continue
+    return round(total, 2)
+
+
+async def _refresh_risk_state(user_id: str) -> dict:
+    state = _state(user_id)
+    pnl = await _daily_realized_profit(user_id)
+    state["daily_profit"] = pnl
+
+    target = float(state.get("target_gain") or 0)
+    max_loss = float(state.get("max_loss") or 0)
+
+    reason = ""
+    if target > 0 and pnl >= target:
+        reason = f"Meta diária atingida ({pnl:.2f} / {target:.2f})"
+    elif max_loss > 0 and pnl <= -max_loss:
+        reason = f"Limite de perda atingido ({pnl:.2f} / -{max_loss:.2f})"
+
+    state["risk_halted"] = bool(reason)
+    state["risk_reason"] = reason
+    return state
+
+
+def _start_new_session(state: dict, reason: str) -> None:
+    state["session_id"] = new_session_id()
+    state["session_started_at"] = iso_now()
+    state["session_reason"] = reason
+    state["last_signal_candle"] = {}
+    state["best"] = None
+    state["ranking"] = []
+    state["message"] = reason
+
+
+def _session_out(session: BrokerSession) -> dict:
+    return {
+        "broker": session.broker,
+        "connected": session.connected,
+        "simulated": session.simulated,
+        "account_type": session.account_type,
+        "balance": session.balance,
+        "currency": session.currency,
+        "message": session.message,
+        "assets_count": len(session.assets),
     }
-    const groups=[
-      {title:'Tendência e médias',items:[
-        ['EMA 9','ema9'],['EMA 21','ema21'],['EMA 100','ema100'],
-        ['Confirmação EMA','ema_confirmation'],['Gatilho EMA','ema_trigger'],
-        ['Média SMA 9','sma9'],['Média SMA 21','sma21']
-      ]},
-      {title:'Força e direção',items:[
-        ['RSI (14)','rsi'],['Status RSI','rsi_status'],['ADX','adx'],
-        ['Status ADX','adx_status'],['DI+','di_plus'],['DI−','di_minus'],
-        ['Leitura Didi','didi_status']
-      ]},
-      {title:'Fluxo estimado',items:[
-        ['Direção do fluxo','flow_direction'],['Pressão do fluxo','flow_pressure'],
-        ['Força do fluxo','flow_strength'],['Fluxo dos candles','candle_flow'],
-        ['Fluxo ponderado por volume','candle_volume_flow'],
-        ['Fluxo de mercado','market_flow'],['Fluxo de volume','market_volume_flow'],
-        ['Fonte do fluxo','flow_source']
-      ]},
-      {title:'Confirmações do cérebro',items:[
-        ['Direção da tendência','trend_direction'],['Força da tendência','trend_strength'],
-        ['Confirmações de entrada','entry_confirmations'],['Pontuação do cérebro','brain_score'],
-        ['Filtro de entrada','entry_filter_passed'],['Motivos de bloqueio','entry_filter_reasons']
-      ]},
-      {title:'Candle e absorção',items:[
-        ['Proporção do corpo','candle_body_ratio'],['Absorção detectada','absorption_detected'],
-        ['Força da absorção','absorption_strength'],['Relação de volume','volume_ratio'],
-        ['Impacto estimado','price_impact_estimate'],['Deslocamento em ATR','displacement_atr']
-      ]}
-    ];
-    const fmt=v=>{
-      if(v===null||v===undefined||v==='')return '—';
-      if(typeof v==='boolean')return v?'Sim':'Não';
-      if(Array.isArray(v))return v.length?v.join(', '):'Nenhum';
-      if(typeof v==='number')return Number.isFinite(v)?v.toLocaleString('pt-BR',{maximumFractionDigits:6}):'—';
-      if(typeof v==='object')return JSON.stringify(v);
-      return String(v);
-    };
-    const card=(label,value)=>{
-      if(value===undefined||value===null||value==='')return '';
-      return `<div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-2 min-w-0">
-        <div class="text-[11px] muted">${escapeHtml(label)}</div>
-        <div class="text-sm font-bold mt-1 break-words">${escapeHtml(fmt(value))}</div>
-      </div>`;
-    };
-    target.innerHTML=groups.map(group=>{
-      const rows=group.items.map(([label,key])=>card(label,data[key])).filter(Boolean).join('');
-      return rows?`<section class="mb-4"><h4 class="text-xs uppercase tracking-wider purple-neon font-bold mb-2">${escapeHtml(group.title)}</h4><div class="grid grid-cols-2 gap-2">${rows}</div></section>`:'';
-    }).join('');
-    if(!target.innerHTML)target.innerHTML='<div class="skeleton">A API retornou o sinal, mas não encontrou os campos esperados dos indicadores.</div>';
-  }
-  function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-  function updateCandleCountdown(){
-    if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}
-    const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));
-    $('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0');
-  }
-  async function refreshScan(){
-    try{
-      const s=await api('/scan/state');
-      scanning=s.running===true;updateScanUI();
-      $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
-      candleCloseAt=Number(s.candle_close_ts||0);
-      $('candle-countdown-note').textContent=candleCloseAt?'Fechamento estimado da vela '+(s.timeframe||$('timeframe').value)+' · horário do servidor':'Inicie o scanner para sincronizar a contagem.';
-      updateCandleCountdown();
-      const pnl=Number(s.daily_profit||0);
-      $('daily-profit').textContent=pnl.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-      $('daily-profit').className=pnl>0?'text-emerald-300':pnl<0?'text-rose-300':'';
-      $('daily-gain').textContent=Number(s.daily_gain||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-      $('daily-loss').textContent=Number(s.daily_loss||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-      $('daily-limits').textContent=`Meta ${fmt(s.target_gain||0,2)} · Perda ${fmt(s.max_loss||0,2)}`;
-      $('risk-status').textContent=s.risk_halted?'TRAVADO: '+(s.risk_reason||'limite atingido'):(s.auto_trade?'Ativo · monitorando limites':'Não executando ordens');
-      $('risk-status').className=s.risk_halted?'text-rose-300':'text-slate-200';
-      const ranking=normalizeRanking(s);
-      renderRanking(ranking);
-      if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
-      $('api-dot').className='dot ok';$('api-status').textContent='API conectada';
-    }catch(err){$('api-dot').className='dot bad';$('api-status').textContent='API indisponível';$('scan-message').textContent=err.message}
-  }
-  async function refreshChart(){
-    if(!selectedAsset||selectedAsset==='—')return;
-    try{
-      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset));
-      const candles=Array.isArray(data.candles)?data.candles:[];
-      const c=candles[candles.length-1];
-      $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
-      if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
-      $('hero-price').textContent=fmt(c.close,5);
-      $('hero-candle-time').textContent=dateFmt(c.ts);
-      $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
-      const body=Math.abs(Number(c.close)-Number(c.open));
-      const upperShadow=Number(c.high)-Math.max(Number(c.open),Number(c.close));
-      const lowerShadow=Math.min(Number(c.open),Number(c.close))-Number(c.low);
-      $('c-body').textContent=fmt(body,6);
-      $('c-upper-shadow').textContent=fmt(Math.max(0,upperShadow),6);
-      $('c-lower-shadow').textContent=fmt(Math.max(0,lowerShadow),6);
-      $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. SMA 9: ${last(data.ma9)} · SMA 21: ${last(data.ma21)}.`;
-      if(selectedSignal && selectedSignal.indicators){
-        selectedSignal.indicators.sma9=Array.isArray(data.ma9)&&data.ma9.length?data.ma9[data.ma9.length-1].value:null;
-        selectedSignal.indicators.sma21=Array.isArray(data.ma21)&&data.ma21.length?data.ma21[data.ma21.length-1].value:null;
-        renderIndicators(selectedSignal.indicators);
-      }
-    }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
-  }
-  function last(arr){return Array.isArray(arr)&&arr.length?fmt(arr[arr.length-1],5):'—'}
-  async function refreshHistory(){
-    try{
-      const data=await api('/signals/history?limit=50');
-      const items=Array.isArray(data.items)?data.items:[];
-      $('history-stats').textContent=data.stats?`${data.stats.wins??0} vitórias · ${data.stats.losses??0} perdas · ${fmt(data.stats.winrate??0,1)}% acerto · lucro ${fmt(data.stats.profit??0,2)}`:'';
-      if(!items.length){$('history-body').innerHTML='<tr><td colspan="6" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
-      $('history-body').innerHTML=items.map(x=>{
-        const result=String(x.result??x.status??'PENDENTE').toUpperCase();
-        const cls=result.includes('WIN')||result.includes('WON')||result.includes('GAIN')?'text-emerald-300':result.includes('LOSS')||result.includes('LOST')?'text-rose-300':'text-amber-200';
-        return `<tr><td>${escapeHtml(dateFmt(x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${cls}">${escapeHtml(result)}</td><td>${x.profit==null?'—':escapeHtml(fmt(x.profit,2))}</td></tr>`;
-      }).join('');
-    }catch(err){$('history-body').innerHTML=`<tr><td colspan="6" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
-  }
-  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory()])}
-  function startPolling(){
-    stopPolling();
-    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
-  }
-  function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
-  restoreSession();
-  if(window.lucide)lucide.createIcons();
-})();
-</script>
-</body>
-</html>
+
+
+# ---------------------------------------------------------------------------
+# Sinais, ordens e liquidação
+# ---------------------------------------------------------------------------
+
+def _signal_doc(
+    user_id: str,
+    best: dict,
+    tf: str,
+    session: BrokerSession,
+    state: dict,
+) -> dict:
+    now = utc_now()
+    return {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "session_id": state["session_id"],
+        "session_started_at": state["session_started_at"],
+        "asset": best["asset"],
+        "direction": best["direction"],
+        "confidence": best["confidence"],
+        "price": best["price"],
+        "timeframe": tf,
+        "candle_ts": best.get("candle_ts"),
+        "broker": session.broker,
+        "simulated": session.simulated,
+        "account_type": session.account_type,
+        "indicators": best.get("indicators", {}),
+        "brain_snapshot": best.get("brain_snapshot"),
+        "ts": now.isoformat(),
+        "expires_at": (now + timedelta(seconds=TIMEFRAME_SECONDS[tf])).isoformat(),
+        "result": "PENDENTE",
+        "trade": None,
+        "profit": None,
+        "settled_at": None,
+    }
+
+
+async def _load_quantum_brain_profile(user_id: str) -> dict:
+    """Resume resultados encerrados deste usuário, sem alterar o histórico de sinais."""
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": "$pattern_key",
+            "wins": {"$sum": {"$cond": [{"$eq": ["$result", "WIN"]}, 1, 0]}},
+            "losses": {"$sum": {"$cond": [{"$eq": ["$result", "LOSS"]}, 1, 0]}},
+            "ties": {"$sum": {"$cond": [{"$eq": ["$result", "EMPATE"]}, 1, 0]}},
+        }},
+    ]
+    rows = await db.strategy_brain_events.aggregate(pipeline).to_list(length=5000)
+    return {str(row["_id"]): {"wins": int(row.get("wins", 0)), "losses": int(row.get("losses", 0)), "ties": int(row.get("ties", 0))} for row in rows if row.get("_id")}
+
+
+async def _record_quantum_brain_outcome(sig: dict, result: str) -> None:
+    """Um evento único por sinal; duplicatas não contam duas vezes."""
+    snapshot = sig.get("brain_snapshot") or {}
+    pattern_key = snapshot.get("pattern_key")
+    if not pattern_key or result not in {"WIN", "LOSS", "EMPATE"}:
+        return
+    from pymongo.errors import DuplicateKeyError
+    try:
+        await db.strategy_brain_events.insert_one({
+            "signal_id": sig["id"], "user_id": sig["user_id"],
+            "pattern_key": pattern_key, "snapshot": snapshot, "result": result,
+            "asset": sig.get("asset"), "timeframe": sig.get("timeframe"),
+            "direction": sig.get("direction"), "settled_at": iso_now(),
+        })
+    except DuplicateKeyError:
+        return
+
+
+async def _auto_trade(
+    user_id: str,
+    state: dict,
+    session: BrokerSession,
+    doc: dict,
+) -> bool:
+    """Executa ordem somente após validar conexão, pausa, risco e saldo."""
+    if not state.get("auto_trade"):
+        return False
+    if state.get("paused"):
+        state["message"] = "Robô pausado: nenhuma nova ordem será enviada."
+        return False
+    if not session.connected:
+        state["message"] = "Ordem bloqueada: corretora desconectada."
+        return False
+
+    await _refresh_risk_state(user_id)
+    if state.get("risk_halted"):
+        state["message"] = "Ordem bloqueada pela proteção diária: " + state["risk_reason"]
+        return False
+
+    amount = float(state["amount"])
+    if amount < 1 or amount > 10000:
+        state["message"] = "Ordem bloqueada: valor fora do limite permitido."
+        return False
+    if amount > float(session.balance or 0):
+        state["message"] = "Ordem bloqueada: saldo insuficiente."
+        return False
+
+    try:
+        order_id = await place_trade(
+            session,
+            doc["asset"],
+            doc["direction"],
+            amount,
+            doc["timeframe"],
+        )
+        doc["trade"] = {
+            "order_id": order_id,
+            "amount": amount,
+            "status": "ABERTA",
+            "profit": None,
+        }
+        state["message"] = (
+            f"Entrada automática enviada: {doc['asset']} "
+            f"{doc['direction']} {session.currency} {amount:.2f}"
+        )
+        return True
+    except ConnectionError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        doc["trade"] = {
+            "order_id": None,
+            "amount": amount,
+            "status": "ERRO",
+            "error": str(exc)[:200],
+            "profit": None,
+        }
+        state["message"] = f"Falha na entrada automática: {str(exc)[:120]}"
+        return False
+
+
+def _price_at_expiry(sig: dict, candles: list[dict]) -> float:
+    tf = TIMEFRAME_SECONDS[sig["timeframe"]]
+    exp_ts = int(parse_iso(sig["expires_at"]).timestamp())
+    target_ts = exp_ts // tf * tf
+    candle = next(
+        (c for c in candles if int(c.get("ts", 0)) == target_ts),
+        None,
+    )
+    if candle:
+        return float(candle["open"])
+    return float(candles[-1]["close"]) if candles else float(sig["price"])
+
+
+async def _settle_pending(user_id: str, session: BrokerSession) -> None:
+    """Liquida sinais vencidos; ordens reais usam o resultado informado pela corretora."""
+    now = utc_now()
+    pending = await db.signals.find(
+        {
+            "user_id": user_id,
+            "result": "PENDENTE",
+            "expires_at": {"$lte": now.isoformat()},
+        },
+        {"_id": 0},
+    ).to_list(100)
+
+    balance_changed = False
+
+    for sig in pending:
+        trade = sig.get("trade") or {}
+        update: dict = {}
+
+        if trade.get("order_id") and not sig.get("simulated"):
+            result_data = await check_trade(session, trade["order_id"])
+            if not result_data.get("done"):
+                continue
+
+            raw_win = str(result_data.get("win", "")).lower()
+            result = {"win": "WIN", "loose": "LOSS", "loss": "LOSS"}.get(
+                raw_win,
+                "EMPATE",
+            )
+            profit = float(result_data.get("profit") or 0)
+            update = {
+                "result": result,
+                "trade.status": "FECHADA",
+                "trade.profit": profit,
+                "profit": profit,
+                "settled_at": now.isoformat(),
+            }
+            balance_changed = True
+
+        else:
+            candles = (
+                _state(user_id)["candles"].get(sig["asset"])
+                or await get_candles(
+                    session,
+                    sig["asset"],
+                    sig["timeframe"],
+                    count=60,
+                )
+            )
+            close_price = _price_at_expiry(sig, candles)
+            direction = str(sig["direction"]).upper()
+            won = (
+                close_price > float(sig["price"])
+                if direction == "CALL"
+                else close_price < float(sig["price"])
+            )
+            result = "WIN" if won else "LOSS"
+            update = {
+                "result": result,
+                "close_price": close_price,
+                "settled_at": now.isoformat(),
+            }
+
+            if trade.get("order_id"):
+                amount = float(trade.get("amount") or 0)
+                profit = (
+                    round(amount * float(SIM_PAYOUT), 2)
+                    if won
+                    else -amount
+                )
+                if won:
+                    session.balance = round(
+                        float(session.balance or 0) + amount + profit,
+                        2,
+                    )
+                update.update(
+                    {
+                        "trade.status": "FECHADA",
+                        "trade.profit": profit,
+                        "profit": profit,
+                    }
+                )
+
+        saved = await db.signals.update_one(
+            {"id": sig["id"], "user_id": user_id, "result": "PENDENTE"},
+            {"$set": update},
+        )
+        if saved.modified_count == 1:
+            try:
+                await _record_quantum_brain_outcome(sig, result)
+            except Exception:  # noqa: BLE001
+                logger.exception("Falha ao registrar aprendizagem do sinal %s", sig.get("id"))
+
+    if balance_changed:
+        await refresh_balance(session)
+
+    await _refresh_risk_state(user_id)
+
+
+# ---------------------------------------------------------------------------
+# Loop do scanner
+# ---------------------------------------------------------------------------
+
+async def _scan_loop(user_id: str) -> None:
+    state = _state(user_id)
+    session = _BROKER_SESSIONS.get(user_id)
+
+    if not session:
+        state["running"] = False
+        state["message"] = "Nenhuma corretora conectada"
+        return
+
+    logger.info(
+        "Scanner user=%s broker=%s simulated=%s",
+        user_id,
+        session.broker,
+        session.simulated,
+    )
+
+    while state["running"]:
+        try:
+            if not session.connected:
+                state["running"] = False
+                state["message"] = "Corretora desconectada. Reconecte a conta."
+                break
+
+            # Mesmo pausado, acompanha a liquidação de sinais já abertos.
+            if state.get("paused"):
+                await _settle_pending(user_id, session)
+                await asyncio.sleep(1.0)
+                continue
+
+            tf = state["timeframe"]
+            all_candles = await get_candles_many(
+                session,
+                session.assets,
+                tf,
+                count=120,
+            )
+            tf_seconds = TIMEFRAME_SECONDS[tf]
+            now_ts = int(utc_now().timestamp())
+
+            ranking_results = []
+            signal_results = []
+            closed_candles = {}
+            brain_profile = await _load_quantum_brain_profile(user_id)
+
+            for asset, candles in all_candles.items():
+                closed = [
+                    c for c in candles
+                    if int(c.get("ts", 0)) + tf_seconds <= now_ts
+                ]
+                if not closed:
+                    continue
+
+                closed_candles[asset] = closed
+                analysis = analyze_candles(closed)
+                direction = str(analysis.get("direction", "NEUTRO")).upper()
+                is_ready = bool(analysis.get("ready"))
+                is_confirmed = is_ready and direction in {"CALL", "PUT"}
+
+                # O ranking também exibe ativos sem confirmação ou com poucos candles.
+                # Eles são informativos: somente signal_results pode gerar entrada.
+                item = {
+                    "asset": asset,
+                    "candle_ts": int(closed[-1]["ts"]),
+                    "signal_ready": is_confirmed,
+                    "status": (
+                        "CONFIRMADO" if is_confirmed
+                        else "AGUARDANDO_CONFIRMACAO" if is_ready
+                        else "AGUARDANDO_DADOS"
+                    ),
+                    **analysis,
+                }
+                ranking_results.append(item)
+                if is_confirmed:
+                    signal_results.append(item)
+
+            state["candles"] = closed_candles
+            ranking_results.sort(
+                key=lambda item: (
+                    bool(item.get("signal_ready")),
+                    float(item.get("confidence") or 0),
+                    int(item.get("candle_ts") or 0),
+                ),
+                reverse=True,
+            )
+            signal_results.sort(
+                key=lambda item: float(item.get("confidence") or 0),
+                reverse=True,
+            )
+            state["ranking"] = ranking_results[:10]
+            state["last_scan_ts"] = iso_now()
+            state["best"] = signal_results[0] if signal_results else None
+
+            best = state["best"]
+            if best and float(best.get("confidence") or 0) >= state["min_confidence"]:
+                last_candle = state["last_signal_candle"].get(best["asset"])
+                same = await db.signals.find_one(
+                    {
+                        "user_id": user_id,
+                        "session_id": state["session_id"],
+                        "asset": best["asset"],
+                        "candle_ts": best["candle_ts"],
+                    },
+                    {"_id": 1},
+                )
+
+                if last_candle != best["candle_ts"] and not same:
+                    doc = _signal_doc(user_id, best, tf, session, state)
+                    state["last_signal_candle"][best["asset"]] = best["candle_ts"]
+
+                    if state["auto_trade"]:
+                        await _auto_trade(user_id, state, session, doc)
+
+                    await db.signals.insert_one(doc)
+                    state["message"] = (
+                        f"Vela {tf} fechada — sinal: {best['asset']} "
+                        f"{best['direction']} ({best['confidence']}%)"
+                    )
+
+            elif not signal_results:
+                state["message"] = (
+                    f"Scanner analisando {len(ranking_results)} ativo(s); "
+                    "aguardando confirmação técnica para gerar sinais."
+                    if ranking_results else "Aguardando candles da corretora..."
+                )
+
+            await _settle_pending(user_id, session)
+            await asyncio.sleep(3.0)
+
+        except asyncio.CancelledError:
+            raise
+        except (ConnectionError, TimeoutError) as exc:
+            logger.warning("Conexão perdida user=%s: %s", user_id, exc)
+            state["running"] = False
+            session.connected = False
+            state["message"] = "Conexão com a corretora perdida. Reconecte a conta."
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Erro no scan loop: %s", exc)
+            state["message"] = f"Erro temporário no scanner: {str(exc)[:140]}"
+            await asyncio.sleep(2.0)
+
+    logger.info("Scanner parado user=%s", user_id)
+
+
+async def _start_scan_task(user_id: str) -> None:
+    state = _state(user_id)
+    old = _SCAN_TASKS.get(user_id)
+    if old and not old.done():
+        old.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await old
+    _SCAN_TASKS[user_id] = asyncio.create_task(_scan_loop(user_id))
+
+
+async def _stop_scan(user_id: str) -> None:
+    state = _state(user_id)
+    state["running"] = False
+    task = _SCAN_TASKS.pop(user_id, None)
+    if task and not task.done():
+        task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await task
+
+
+async def _start_scan_with_config(
+    user_id: str,
+    *,
+    timeframe: str,
+    min_confidence: int,
+    auto_trade: bool,
+    amount: float,
+    target_gain: float,
+    max_loss: float,
+    new_session: bool,
+) -> dict:
+    session = _BROKER_SESSIONS.get(user_id)
+    if not session or not session.connected:
+        raise HTTPException(
+            status_code=400,
+            detail="Conecte uma corretora antes de iniciar o scanner",
+        )
+
+    if auto_trade and amount > float(session.balance or 0):
+        raise HTTPException(
+            status_code=400,
+            detail="Valor da entrada maior que o saldo confirmado",
+        )
+
+    state = _state(user_id)
+    if state["running"]:
+        return {
+            "ok": True,
+            "running": True,
+            "message": "Scanner já está em execução",
+            "session_id": state["session_id"],
+        }
+
+    if new_session:
+        _start_new_session(state, "Nova sessão iniciada")
+
+    state.update(
+        {
+            "running": True,
+            "paused": False,
+            "timeframe": timeframe,
+            "min_confidence": min_confidence,
+            "auto_trade": auto_trade,
+            "amount": amount,
+            "target_gain": target_gain,
+            "max_loss": max_loss,
+            "message": "Iniciando varredura do mercado...",
+        }
+    )
+
+    await _refresh_risk_state(user_id)
+    await _start_scan_task(user_id)
+
+    return {
+        "ok": True,
+        "running": True,
+        "message": "Análise iniciada",
+        "session_id": state["session_id"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rotas de autenticação
+# ---------------------------------------------------------------------------
+
+@api.get("/")
+async def api_root():
+    return {"service": "Purple Signal Analyst", "status": "ok"}
+
+
+@api.post("/auth/register")
+async def register(payload: RegisterIn, response: Response):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="E-mail já cadastrado")
+
+    user = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "name": payload.name,
+        "password_hash": hash_password(payload.password),
+        "role": "user",
+        "created_at": iso_now(),
+    }
+    await db.users.insert_one(user)
+
+    token = make_token(user["id"], user["email"])
+    set_auth_cookie(response, token)
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": email,
+            "name": user["name"],
+            "role": "user",
+        },
+    }
+
+
+@api.post("/auth/login")
+async def login(payload: LoginIn, response: Response):
+    email = payload.email.lower()
+    user = await db.users.find_one({"email": email})
+
+    if not user or not verify_password(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+
+    token = make_token(user["id"], user["email"])
+    set_auth_cookie(response, token)
+
+    return {
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": email,
+            "name": user["name"],
+            "role": user.get("role", "user"),
+        },
+    }
+
+
+@api.post("/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
+
+
+@api.get("/auth/me")
+async def me(user=Depends(get_current_user)):
+    return {"user": user}
+
+
+# ---------------------------------------------------------------------------
+# Rotas da corretora
+# ---------------------------------------------------------------------------
+
+@api.post("/broker/connect")
+async def broker_connect(
+    payload: BrokerConnectIn,
+    user=Depends(get_current_user),
+):
+    user_id = user["id"]
+    old = _BROKER_SESSIONS.pop(user_id, None)
+
+    if old:
+        await _stop_scan(user_id)
+        disconnect_broker(old)
+
+    try:
+        session = await connect_broker(
+            payload.broker,
+            payload.email,
+            payload.password,
+            payload.account_type,
+            payload.simulate,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except ConnectionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    _BROKER_SESSIONS[user_id] = session
+    return _session_out(session)
+
+
+@api.post("/broker/disconnect")
+async def broker_disconnect(user=Depends(get_current_user)):
+    user_id = user["id"]
+    await _stop_scan(user_id)
+
+    state = _state(user_id)
+    state["best"] = None
+    state["ranking"] = []
+    state["paused"] = False
+    state["auto_trade"] = False
+    state["message"] = "Desconectado"
+
+    session = _BROKER_SESSIONS.pop(user_id, None)
+    if session:
+        disconnect_broker(session)
+
+    return {"ok": True, "connected": False}
+
+
+@api.get("/broker/status")
+async def broker_status(
+    refresh: bool = Query(default=False),
+    user=Depends(get_current_user),
+):
+    session = _BROKER_SESSIONS.get(user["id"])
+    if not session or not session.connected:
+        return {
+            "connected": False,
+            "session": {"connected": False},
+            "message": "Nenhuma corretora conectada",
+        }
+
+    if refresh:
+        try:
+            await refresh_balance(session)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha ao atualizar saldo da corretora: %s", exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"Não foi possível atualizar o saldo diretamente na corretora: {str(exc)[:160]}",
+            )
+
+    output = _session_out(session)
+    return {
+        **output,
+        "session": output,
+        "balance_refreshed": bool(refresh),
+        "balance_updated_at": iso_now() if refresh else None,
+    }
+
+
+@api.post("/broker/refresh-balance")
+async def broker_refresh_balance(user=Depends(get_current_user)):
+    session = _BROKER_SESSIONS.get(user["id"])
+    if not session or not session.connected:
+        raise HTTPException(status_code=400, detail="Corretora desconectada")
+
+    try:
+        await refresh_balance(session)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Erro ao atualizar saldo diretamente na corretora")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Falha ao consultar saldo na corretora: {str(exc)[:160]}",
+        )
+
+    output = _session_out(session)
+    return {
+        "ok": True,
+        **output,
+        "session": output,
+        "balance_refreshed": True,
+        "balance_updated_at": iso_now(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rotas do scanner
+# ---------------------------------------------------------------------------
+
+@api.post("/scan/start")
+async def scan_start(
+    payload: ScanStartIn,
+    user=Depends(get_current_user),
+):
+    return await _start_scan_with_config(
+        user["id"],
+        timeframe=payload.timeframe,
+        min_confidence=payload.min_confidence,
+        auto_trade=payload.auto_trade,
+        amount=payload.amount,
+        target_gain=payload.target_gain,
+        max_loss=payload.max_loss,
+        new_session=True,
+    )
+
+
+@api.post("/scan/stop")
+async def scan_stop(user=Depends(get_current_user)):
+    user_id = user["id"]
+    await _stop_scan(user_id)
+
+    state = _state(user_id)
+    state["paused"] = False
+    state["auto_trade"] = False
+    state["message"] = "Scanner parado"
+
+    return {"ok": True, "running": False, "message": state["message"]}
+
+
+@api.get("/scan/state")
+async def scan_state(user=Depends(get_current_user)):
+    user_id = user["id"]
+    state = await _refresh_risk_state(user_id)
+
+    tf = state["timeframe"]
+    tf_seconds = TIMEFRAME_SECONDS[tf]
+    now_ts = int(utc_now().timestamp())
+    candle_close_ts = (now_ts // tf_seconds + 1) * tf_seconds
+
+    session_query = {
+        "user_id": user_id,
+        "session_id": state["session_id"],
+    }
+    wins = await db.signals.count_documents({**session_query, "result": "WIN"})
+    losses = await db.signals.count_documents({**session_query, "result": "LOSS"})
+    pending = await db.signals.count_documents({**session_query, "result": "PENDENTE"})
+    total = wins + losses
+
+    return {
+        "running": state["running"],
+        "paused": state["paused"],
+        "timeframe": tf,
+        "min_confidence": state["min_confidence"],
+        "auto_trade": state["auto_trade"],
+        "amount": state["amount"],
+        "target_gain": state["target_gain"],
+        "max_loss": state["max_loss"],
+        "last_scan_ts": state["last_scan_ts"],
+        "candle_close_ts": candle_close_ts,
+        "server_time": now_ts,
+        "best": state["best"],
+        "ranking": state["ranking"],
+        "message": state["message"],
+        "daily_profit": state["daily_profit"],
+        "risk_halted": state["risk_halted"],
+        "risk_reason": state["risk_reason"],
+        "session_id": state["session_id"],
+        "session_started_at": state["session_started_at"],
+        "session_reason": state["session_reason"],
+        "session_stats": {
+            "wins": wins,
+            "losses": losses,
+            "pending": pending,
+            "total": total,
+            "winrate": round(wins * 100 / total, 1) if total else 0,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Rotas de controle do robô
+# ---------------------------------------------------------------------------
+
+@api.post("/robot/start")
+async def robot_start(
+    payload: Optional[RobotConfigIn] = None,
+    user=Depends(get_current_user),
+):
+    user_id = user["id"]
+    state = _state(user_id)
+    config = payload or RobotConfigIn(
+        auto_trade=True,
+        amount=state["amount"],
+        target_gain=state["target_gain"],
+        max_loss=state["max_loss"],
+    )
+
+    if state["running"]:
+        if state.get("risk_halted"):
+            raise HTTPException(
+                status_code=423,
+                detail="Robô bloqueado pela proteção diária: " + state["risk_reason"],
+            )
+        state["auto_trade"] = True
+        state["paused"] = False
+        return {"ok": True, "message": "Robô automático ativado", "running": True}
+
+    return await _start_scan_with_config(
+        user_id,
+        timeframe=state["timeframe"],
+        min_confidence=state["min_confidence"],
+        auto_trade=True,
+        amount=config.amount,
+        target_gain=config.target_gain,
+        max_loss=config.max_loss,
+        new_session=True,
+    )
+
+
+@api.post("/robot/stop")
+async def robot_stop(user=Depends(get_current_user)):
+    state = _state(user["id"])
+    state["auto_trade"] = False
+    state["paused"] = False
+    state["message"] = "Robô automático desativado; scanner analítico preservado."
+    return {
+        "ok": True,
+        "auto_trade": False,
+        "running": state["running"],
+        "message": state["message"],
+    }
+
+
+@api.post("/robot/pause")
+async def robot_pause(user=Depends(get_current_user)):
+    state = _state(user["id"])
+    if not state["running"]:
+        raise HTTPException(status_code=400, detail="Inicie o scanner antes de pausar.")
+
+    state["paused"] = not state["paused"]
+    state["message"] = (
+        "Robô pausado. Ordens novas bloqueadas; sinais pendentes continuam sendo acompanhados."
+        if state["paused"]
+        else "Robô retomado."
+    )
+    return {
+        "ok": True,
+        "paused": state["paused"],
+        "message": state["message"],
+    }
+
+
+@api.post("/robot/reset")
+async def robot_reset(user=Depends(get_current_user)):
+    user_id = user["id"]
+    state = _state(user_id)
+
+    # O reset cria uma sessão nova. A sessão anterior permanece no arquivo.
+    _start_new_session(state, "Placar reiniciado: nova sessão")
+    await _refresh_risk_state(user_id)
+
+    return {
+        "ok": True,
+        "session_id": state["session_id"],
+        "session_started_at": state["session_started_at"],
+        "message": "Nova sessão criada. O placar desta sessão começa do zero.",
+    }
+
+
+@api.post("/sessions/start")
+async def session_start(
+    payload: SessionStartIn,
+    user=Depends(get_current_user),
+):
+    state = _state(user["id"])
+    _start_new_session(state, payload.reason)
+    await _refresh_risk_state(user["id"])
+    return {
+        "ok": True,
+        "session_id": state["session_id"],
+        "session_started_at": state["session_started_at"],
+        "message": payload.reason,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Histórico atual e arquivo de sessões
+# ---------------------------------------------------------------------------
+
+def _history_stats(items: list[dict]) -> dict:
+    wins = sum(1 for item in items if item.get("result") == "WIN")
+    losses = sum(1 for item in items if item.get("result") == "LOSS")
+    total = wins + losses
+
+    profit = 0.0
+    for item in items:
+        try:
+            profit += float(item.get("profit") or (item.get("trade") or {}).get("profit") or 0)
+        except (TypeError, ValueError):
+            continue
+
+    return {
+        "wins": wins,
+        "losses": losses,
+        "pending": sum(1 for item in items if item.get("result") == "PENDENTE"),
+        "total": total,
+        "winrate": round(wins * 100 / total, 1) if total else 0,
+        "profit": round(profit, 2),
+    }
+
+
+@api.get("/signals/history")
+async def signals_history(
+    user=Depends(get_current_user),
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    state = _state(user["id"])
+    query = {
+        "user_id": user["id"],
+        "session_id": state["session_id"],
+    }
+    cursor = (
+        db.signals.find(query, {"_id": 0})
+        .sort("ts", DESCENDING)
+        .limit(limit)
+    )
+    items = await cursor.to_list(length=limit)
+
+    stats_cursor = db.signals.find(query, {"_id": 0}).sort("ts", DESCENDING)
+    all_session_items = await stats_cursor.to_list(length=5000)
+
+    return {
+        "items": items,
+        "stats": _history_stats(all_session_items),
+        "session_id": state["session_id"],
+        "session_started_at": state["session_started_at"],
+    }
+
+
+@api.get("/signals/sessions")
+async def signals_sessions(
+    user=Depends(get_current_user),
+    limit: int = Query(default=100, ge=1, le=500),
+):
+    pipeline = [
+        {"$match": {"user_id": user["id"], "session_id": {"$exists": True}}},
+        {
+            "$group": {
+                "_id": "$session_id",
+                "session_started_at": {"$first": "$session_started_at"},
+                "first_signal_at": {"$min": "$ts"},
+                "last_signal_at": {"$max": "$ts"},
+                "signals": {"$sum": 1},
+                "wins": {
+                    "$sum": {"$cond": [{"$eq": ["$result", "WIN"]}, 1, 0]}
+                },
+                "losses": {
+                    "$sum": {"$cond": [{"$eq": ["$result", "LOSS"]}, 1, 0]}
+                },
+            }
+        },
+        {"$sort": {"last_signal_at": -1}},
+        {"$limit": limit},
+    ]
+    sessions = await db.signals.aggregate(pipeline).to_list(length=limit)
+
+    for item in sessions:
+        total = item.get("wins", 0) + item.get("losses", 0)
+        item["session_id"] = item.pop("_id")
+        item["winrate"] = round(item["wins"] * 100 / total, 1) if total else 0
+
+    return {"sessions": sessions}
+
+
+@api.get("/signals/archive")
+async def signals_archive(
+    user=Depends(get_current_user),
+    result: Optional[str] = Query(default=None),
+    asset: Optional[str] = Query(default=None),
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    time_from: Optional[str] = Query(default=None),
+    time_to: Optional[str] = Query(default=None),
+    session_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+):
+    query: dict = {
+        "user_id": user["id"],
+        "session_id": {"$exists": True},
+    }
+
+    if session_id:
+        query["session_id"] = session_id
+
+    if result:
+        normalized = result.upper()
+        if normalized not in {"WIN", "LOSS", "PENDENTE", "EMPATE"}:
+            raise HTTPException(status_code=400, detail="Filtro de resultado inválido")
+        query["result"] = normalized
+
+    if asset:
+        query["asset"] = {"$regex": asset.strip(), "$options": "i"}
+
+    # Filtros de data e horário são convertidos em intervalo ISO UTC.
+    if date_from or date_to or time_from or time_to:
+        # Se o usuário filtrar apenas por horário, aplica o intervalo ao dia atual (UTC).
+        today_utc = utc_now().date().isoformat()
+        start_date = date_from or (today_utc if (time_from or time_to) else "1970-01-01")
+        end_date = date_to or today_utc
+        start_clock = time_from or "00:00"
+        end_clock = time_to or "23:59"
+
+        try:
+            start_dt = datetime.fromisoformat(f"{start_date}T{start_clock}:00").replace(tzinfo=timezone.utc)
+            end_dt = datetime.fromisoformat(f"{end_date}T{end_clock}:59").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Data ou horário inválido")
+
+        query["ts"] = {
+            "$gte": start_dt.isoformat(),
+            "$lte": end_dt.isoformat(),
+        }
+
+    cursor = (
+        db.signals.find(query, {"_id": 0})
+        .sort("ts", DESCENDING)
+        .limit(limit)
+    )
+    items = await cursor.to_list(length=limit)
+    return {"items": items, "count": len(items), "filters": {
+        "result": result,
+        "asset": asset,
+        "date_from": date_from,
+        "date_to": date_to,
+        "time_from": time_from,
+        "time_to": time_to,
+        "session_id": session_id,
+    }}
+
+
+@api.post("/signals/clear-current-session")
+async def clear_current_session_history(user=Depends(get_current_user)):
+    """Zera somente o placar corrente, preservando sessões arquivadas."""
+    state = _state(user["id"])
+    old_session_id = state["session_id"]
+
+    # Em vez de apagar documentos, encerra a sessão e inicia outra.
+    _start_new_session(state, "Placar limpo: nova sessão")
+    await _refresh_risk_state(user["id"])
+
+    return {
+        "ok": True,
+        "previous_session_id": old_session_id,
+        "session_id": state["session_id"],
+        "message": "Placar corrente zerado; sessão anterior preservada no arquivo.",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Gráfico
+# ---------------------------------------------------------------------------
+
+@api.get("/chart")
+async def chart(asset: str, user=Depends(get_current_user)):
+    state = _state(user["id"])
+    requested_asset = str(asset or "").strip()
+    candles = state["candles"].get(requested_asset)
+
+    # Tenta localizar a chave sem depender de maiúsculas/minúsculas.
+    if not candles:
+        matched_key = next(
+            (key for key in state["candles"] if str(key).casefold() == requested_asset.casefold()),
+            None,
+        )
+        if matched_key is not None:
+            candles = state["candles"].get(matched_key)
+
+    # Se o ativo não estiver no cache atual, consulta a corretora diretamente.
+    if not candles:
+        session = _BROKER_SESSIONS.get(user["id"])
+        if session and session.connected:
+            try:
+                fetched = await get_candles(
+                    session, requested_asset, state["timeframe"], count=120
+                )
+                tf_seconds = TIMEFRAME_SECONDS[state["timeframe"]]
+                now_ts = int(utc_now().timestamp())
+                candles = [
+                    c for c in (fetched or [])
+                    if int(c.get("ts", 0)) + tf_seconds <= now_ts
+                ]
+                if candles:
+                    state["candles"][requested_asset] = candles
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Falha ao recuperar candles do gráfico %s: %s", requested_asset, exc)
+                candles = []
+
+    if not candles:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Sem candles fechados disponíveis para {requested_asset} no timeframe {state['timeframe']}",
+        )
+
+    close = pd.Series([c["close"] for c in candles])
+    ma9 = sma(close, 9)
+    ma21 = sma(close, 21)
+
+    out = candles[-80:]
+    offset = len(candles) - len(out)
+
+    return {
+        "asset": asset,
+        "timeframe": state["timeframe"],
+        "candles": out,
+        "ma9": [
+            {"ts": c["ts"], "value": float(ma9.iloc[offset + i])}
+            for i, c in enumerate(out)
+            if not pd.isna(ma9.iloc[offset + i])
+        ],
+        "ma21": [
+            {"ts": c["ts"], "value": float(ma21.iloc[offset + i])}
+            for i, c in enumerate(out)
+            if not pd.isna(ma21.iloc[offset + i])
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Servir o HTML
+# ---------------------------------------------------------------------------
+
+app.include_router(api)
+
+
+@app.get("/", include_in_schema=False)
+async def serve_frontend():
+    candidates = (
+        ROOT_DIR / "template" / "index.html",
+        ROOT_DIR / "templates" / "index.html",
+        ROOT_DIR / "index.html",
+        ROOT_DIR / "Purple_Signal_robo_interface.html",
+    )
+    for html_file in candidates:
+        if html_file.is_file():
+            return FileResponse(html_file)
+
+    raise HTTPException(
+        status_code=404,
+        detail="Interface HTML não encontrada na raiz do projeto.",
+    )
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ---------------------------------------------------------------------------
+# Índices e migração única do histórico antigo
+# ---------------------------------------------------------------------------
+
+INDEXES: dict[str, list[IndexModel]] = {
+    "users": [
+        IndexModel([("email", ASCENDING)], unique=True, name="email_unique"),
+        IndexModel([("id", ASCENDING)], unique=True, name="id_unique"),
+    ],
+    "signals": [
+        IndexModel([("user_id", ASCENDING), ("ts", DESCENDING)], name="user_ts"),
+        IndexModel(
+            [("user_id", ASCENDING), ("session_id", ASCENDING), ("ts", DESCENDING)],
+            name="user_session_ts",
+        ),
+        IndexModel(
+            [("user_id", ASCENDING), ("result", ASCENDING), ("asset", ASCENDING), ("ts", DESCENDING)],
+            name="archive_filters",
+        ),
+    ],
+    "strategy_brain_events": [
+        IndexModel([("signal_id", ASCENDING)], unique=True, name="brain_signal_unique"),
+        IndexModel([("user_id", ASCENDING), ("pattern_key", ASCENDING)], name="brain_user_pattern"),
+    ],
+}
+
+
+async def seed_admin() -> None:
+    email = os.environ.get("ADMIN_EMAIL", "admin@sinais.com").lower()
+    password = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        return
+
+    await db.users.insert_one(
+        {
+            "id": str(uuid.uuid4()),
+            "email": email,
+            "name": "Administrador",
+            "password_hash": hash_password(password),
+            "role": "admin",
+            "created_at": iso_now(),
+        }
+    )
+    logger.info("Admin seed criado: %s", email)
+
+
+async def clear_legacy_signals_once() -> None:
+    """Compatibilidade com o startup antigo; preserva integralmente o histórico."""
+    logger.info("Migração de histórico ignorada: sinais existentes foram preservados.")
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    for collection, models in INDEXES.items():
+        for model in models:
+            with suppress(Exception):
+                await db[collection].create_indexes([model])
+
+    # Mantém compatibilidade com a inicialização sem apagar o histórico.
+    await clear_legacy_signals_once()
+    await seed_admin()
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    for task in list(_SCAN_TASKS.values()):
+        task.cancel()
+    _SCAN_TASKS.clear()
+
+    for session in list(_BROKER_SESSIONS.values()):
+        with suppress(Exception):
+            disconnect_broker(session)
+
+    client.close()
