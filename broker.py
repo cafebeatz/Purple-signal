@@ -21,7 +21,6 @@ DEFAULT_ASSETS = [
     "EURJPY", "EURGBP", "GBPJPY", "EURCHF", "AUDJPY", "AUDCAD", "CADJPY",
     "EURUSD-OTC", "GBPUSD-OTC", "USDJPY-OTC", "AUDCAD-OTC", "EURJPY-OTC",
 ]
-MAX_REAL_ASSETS = 60
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900}
 SIM_PAYOUT = 0.85
 @dataclass
@@ -113,10 +112,11 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
         else:
             grouped = split_assets_by_market(list(res.get("assets") or []))
 
-        # Limite independente por mercado para preservar espaço para os dois.
+        # Sem limite artificial: a lista vem exclusivamente dos ativos
+        # habilitados e reconhecidos pela API da corretora.
         session.market_assets = {
-            "open": grouped["open"][:MAX_REAL_ASSETS],
-            "otc": grouped["otc"][:MAX_REAL_ASSETS],
+            "open": grouped["open"],
+            "otc": grouped["otc"],
         }
         session.assets = session.market_assets["open"] + session.market_assets["otc"]
         logger.info(
