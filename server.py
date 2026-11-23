@@ -239,6 +239,8 @@ def _state(user_id: str) -> dict:
             "best": None,
             "ranking": [],
             "candles": {},
+            "candle_fetch_ts": {},
+            "scan_progress": {"total": 0, "fetched": 0, "analyzed": 0, "remaining": 0, "errors": 0},
             "last_signal_candle": {},
             "message": "Aguardando início do scanner",
             "session_id": new_session_id(),
@@ -577,6 +579,27 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
 # Loop do scanner
 # ---------------------------------------------------------------------------
 
+def _merge_candles(existing: list[dict], incoming: list[dict], limit: int = 120) -> list[dict]:
+    """Merge OHLCV por timestamp, sem duplicatas, em ordem cronológica."""
+    by_ts: dict[int, dict] = {}
+    for candle in list(existing or []) + list(incoming or []):
+        try:
+            ts = int(candle.get("ts", 0))
+            if ts > 0:
+                by_ts[ts] = dict(candle)
+        except (TypeError, ValueError):
+            continue
+    return [by_ts[ts] for ts in sorted(by_ts)[-limit:]]
+
+
+def _incremental_candle_count(last_fetch_ts: float | None, timeframe_seconds: int) -> int:
+    """5 candles mínimo; amplia o overlap conforme o tempo desde a última leitura."""
+    if not last_fetch_ts:
+        return 120
+    elapsed = max(0.0, utc_now().timestamp() - float(last_fetch_ts))
+    return min(120, max(5, int(elapsed // timeframe_seconds) + 3))
+
+
 async def _scan_loop(user_id: str) -> None:
     state = _state(user_id)
     session = _BROKER_SESSIONS.get(user_id)
@@ -607,54 +630,84 @@ async def _scan_loop(user_id: str) -> None:
                 continue
 
             tf = state["timeframe"]
-            all_candles = await get_candles_many(
-                session,
-                session.assets,
-                tf,
-                count=120,
-            )
             tf_seconds = TIMEFRAME_SECONDS[tf]
             now_ts = int(utc_now().timestamp())
+            assets = list(session.assets)
+            progress = {
+                "total": len(assets), "fetched": 0, "analyzed": 0,
+                "remaining": len(assets), "errors": 0,
+            }
+            state["scan_progress"] = dict(progress)
 
             ranking_results = []
             signal_results = []
-            closed_candles = {}
+            candle_cache = state.setdefault("candles", {})
+            fetch_times = state.setdefault("candle_fetch_ts", {})
             brain_profile = await _load_quantum_brain_profile(user_id)
 
-            for asset, candles in all_candles.items():
-                closed = [
-                    c for c in candles
-                    if int(c.get("ts", 0)) + tf_seconds <= now_ts
-                ]
-                if not closed:
-                    continue
-
-                closed_candles[asset] = closed
-                analysis = analyze_candles(closed)
-                direction = str(analysis.get("direction", "NEUTRO")).upper()
-                is_ready = bool(analysis.get("ready"))
-                is_confirmed = is_ready and direction in {"CALL", "PUT"}
-
-                # O ranking também exibe ativos sem confirmação ou com poucos candles.
-                # Eles são informativos: somente signal_results pode gerar entrada.
-                item = {
-                    "asset": asset,
-                    "market_type": market_type_for_asset(asset),
-                    "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
-                    "candle_ts": int(closed[-1]["ts"]),
-                    "signal_ready": is_confirmed,
-                    "status": (
-                        "CONFIRMADO" if is_confirmed
-                        else "AGUARDANDO_CONFIRMACAO" if is_ready
-                        else "AGUARDANDO_DADOS"
-                    ),
-                    **analysis,
+            # Worker isolado: comandos por lote, mantendo as chamadas IQ sequenciais.
+            batch_size = 10
+            for batch_start in range(0, len(assets), batch_size):
+                batch = assets[batch_start:batch_start + batch_size]
+                counts = {
+                    asset: _incremental_candle_count(fetch_times.get(asset), tf_seconds)
+                    for asset in batch
                 }
-                ranking_results.append(item)
-                if is_confirmed:
-                    signal_results.append(item)
+                request_count = max(counts.values(), default=5)
+                try:
+                    batch_data = await get_candles_many(
+                        session, batch, tf, count=request_count
+                    )
+                except (ConnectionError, TimeoutError):
+                    raise
+                except Exception as batch_exc:  # noqa: BLE001
+                    logger.warning("Falha no lote de candles: %s", batch_exc)
+                    batch_data = {}
+                fetched_at = utc_now().timestamp()
+                progress["fetched"] += len(batch)
 
-            state["candles"] = closed_candles
+                for asset in batch:
+                    incoming = batch_data.get(asset) or []
+                    if not incoming:
+                        progress["errors"] += 1
+                    else:
+                        fetch_times[asset] = fetched_at
+                        incoming_closed = [
+                            c for c in incoming
+                            if int(c.get("ts", 0)) + tf_seconds <= now_ts
+                        ]
+                        candle_cache[asset] = _merge_candles(
+                            candle_cache.get(asset, []), incoming_closed, 120
+                        )
+
+                    closed = candle_cache.get(asset, [])
+                    if closed:
+                        analysis = analyze_candles(closed)
+                        direction = str(analysis.get("direction", "NEUTRO")).upper()
+                        is_ready = bool(analysis.get("ready"))
+                        is_confirmed = is_ready and direction in {"CALL", "PUT"}
+                        item = {
+                            "asset": asset,
+                            "market_type": market_type_for_asset(asset),
+                            "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
+                            "candle_ts": int(closed[-1]["ts"]),
+                            "signal_ready": is_confirmed,
+                            "status": (
+                                "CONFIRMADO" if is_confirmed
+                                else "AGUARDANDO_CONFIRMACAO" if is_ready
+                                else "AGUARDANDO_DADOS"
+                            ),
+                            **analysis,
+                        }
+                        ranking_results.append(item)
+                        if is_confirmed:
+                            signal_results.append(item)
+
+                    progress["analyzed"] += 1
+                    progress["remaining"] = max(0, progress["total"] - progress["analyzed"])
+                    state["scan_progress"] = dict(progress)
+
+            state["candles"] = candle_cache
             ranking_results.sort(
                 key=lambda item: (
                     bool(item.get("signal_ready")),
@@ -667,12 +720,9 @@ async def _scan_loop(user_id: str) -> None:
                 key=lambda item: float(item.get("confidence") or 0),
                 reverse=True,
             )
-            # Mantém até 10 oportunidades de cada mercado para que um deles
-            # não desapareça do painel quando o outro tiver pontuações maiores.
-            open_ranking = [x for x in ranking_results if x.get("market_type") == "open"][:10]
-            otc_ranking = [x for x in ranking_results if x.get("market_type") == "otc"][:10]
+            # Todos os ativos analisados ficam disponíveis no ranking.
             state["ranking"] = sorted(
-                open_ranking + otc_ranking,
+                ranking_results,
                 key=lambda item: (
                     bool(item.get("signal_ready")),
                     float(item.get("confidence") or 0),
@@ -719,7 +769,7 @@ async def _scan_loop(user_id: str) -> None:
                 )
 
             await _settle_pending(user_id, session)
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:
             raise
@@ -1091,6 +1141,7 @@ async def scan_state(user=Depends(get_current_user)):
         "server_time": now_ts,
         "best": state["best"],
         "ranking": state["ranking"],
+        "scan_progress": state.get("scan_progress", {}),
         "asset_counts": asset_counts,
         "message": state["message"],
         "daily_profit": state["daily_profit"],
