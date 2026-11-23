@@ -352,8 +352,76 @@
     $('hero-meta').textContent=[marketLabel(getMarketType(x)),x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
     $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
     $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators||x.analysis||null;
-    $('indicator-details').textContent=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
+    const ind=x.indicators || (x.analysis && (x.analysis.indicators || x.analysis)) || null;
+    renderIndicators(ind);
+  }
+  function indicatorLabel(key){
+    const k=String(key).toLowerCase().replace(/[^a-z0-9]/g,'');
+    const labels={
+      rsi:'RSI', adx:'ADX', macd:'MACD', macdsignal:'Sinal do MACD',
+      macdhistogram:'Histograma MACD', ema9:'EMA 9', ema21:'EMA 21',
+      sma9:'Média móvel 9', sma21:'Média móvel 21', ma9:'Média móvel 9',
+      ma21:'Média móvel 21', bbupper:'Bollinger superior',
+      bblower:'Bollinger inferior', bbmiddle:'Bollinger central',
+      bollingerupper:'Bollinger superior', bollingerlower:'Bollinger inferior',
+      bollingermiddle:'Bollinger central', atr:'ATR', stoch:'Estocástico',
+      stochastic:'Estocástico', cci:'CCI', williamsr:'Williams %R',
+      direction:'Direção técnica', confidence:'Confiança', ready:'Sinal pronto',
+      trend:'Tendência', volatility:'Volatilidade', momentum:'Momentum',
+      support:'Suporte', resistance:'Resistência'
+    };
+    return labels[k] || String(key).replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  }
+  function indicatorValue(value){
+    if(value===null || value===undefined || value==='') return '—';
+    if(typeof value==='boolean') return value?'Sim':'Não';
+    if(typeof value==='number') return Number.isFinite(value)?value.toLocaleString('pt-BR',{maximumFractionDigits:5}):'—';
+    if(typeof value==='string'){
+      const v=value.toUpperCase();
+      if(v==='CALL') return 'COMPRA';
+      if(v==='PUT') return 'VENDA';
+      if(v==='NEUTRO') return 'NEUTRO';
+      if(v==='TRUE') return 'Sim';
+      if(v==='FALSE') return 'Não';
+      return value;
+    }
+    if(Array.isArray(value)){
+      const lastValue=value.length?value[value.length-1]:null;
+      if(typeof lastValue==='number') return indicatorValue(lastValue);
+      if(lastValue && typeof lastValue==='object' && 'value' in lastValue) return indicatorValue(lastValue.value);
+      return value.length?`${value.length} valores`:'—';
+    }
+    return null;
+  }
+  function collectIndicatorRows(obj, prefix='', depth=0, rows=[]){
+    if(!obj || typeof obj!=='object' || depth>2) return rows;
+    for(const [key,value] of Object.entries(obj)){
+      if(['timestamp','ts','candle_ts','asset','symbol','raw','debug','brain_snapshot'].includes(String(key).toLowerCase())) continue;
+      const label=prefix?`${prefix} · ${indicatorLabel(key)}`:indicatorLabel(key);
+      const display=indicatorValue(value);
+      if(display!==null && typeof value!=='object'){
+        rows.push({label,value:display});
+      } else if(Array.isArray(value)){
+        const displayArray=indicatorValue(value);
+        rows.push({label,value:displayArray});
+      } else if(value && typeof value==='object'){
+        collectIndicatorRows(value,label,depth+1,rows);
+      }
+    }
+    return rows;
+  }
+  function renderIndicators(ind){
+    const root=$('indicator-details');
+    const rows=collectIndicatorRows(ind);
+    if(!rows.length){
+      root.innerHTML='<div class="text-xs muted rounded-lg bg-slate-950/50 p-3">Aguardando valores dos indicadores retornados pela análise.</div>';
+      return;
+    }
+    root.innerHTML=`<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${rows.map(row=>`
+      <div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-3 min-w-0">
+        <div class="text-[10px] uppercase tracking-wide muted">${escapeHtml(row.label)}</div>
+        <div class="text-sm font-semibold text-slate-100 mt-1 break-words">${escapeHtml(row.value)}</div>
+      </div>`).join('')}</div>`;
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   function updateCandleCountdown(){if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));$('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0')}
@@ -384,8 +452,7 @@
   async function refreshChart(){
     if(!selectedAsset||selectedAsset==='—')return;
     try{
-      const type=selectedSignal?getMarketType(selectedSignal):(selectedAsset.toUpperCase().includes('OTC')?'otc':'open');
-      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset)+'&market_type='+encodeURIComponent(type));
+      const type=selectedSignal?getMarketType(selectedSignal):(selectedAsset.toUpperCase().includes('OTC')?'otc':'open');\n      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset)+'&market_type='+encodeURIComponent(type));
       const candles=Array.isArray(data.candles)?data.candles:[];
       const c=candles[candles.length-1];
       $('chart-source').textContent=selectedAsset+' · '+marketLabel(data.market_type||type)+' · '+(data.timeframe||$('timeframe').value);
