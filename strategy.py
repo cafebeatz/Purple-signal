@@ -1,3 +1,4 @@
+
 """Purple Signal — fluxo, pressão, pullback e estrutura como núcleo direcional.
 A leitura de fluxo é uma estimativa baseada em OHLCV (corpo, sombras e volume quando disponível),
 pois a integração atual não fornece agressão bid/ask nem livro de ofertas.
@@ -133,7 +134,6 @@ def _hidden_structure_confluence(
     return 0, "NONE"
 
 
-
 def _market_structure_analysis(df: pd.DataFrame, atr_value: float) -> dict:
     """Classifica a estrutura confirmada de topos/fundos."""
     empty = {
@@ -199,44 +199,73 @@ def _market_structure_analysis(df: pd.DataFrame, atr_value: float) -> dict:
 
 
 def _pullback_analysis(
-    df: pd.DataFrame, trend_direction: str, ema21_value: float,
-    atr_value: float, fib_zone: str,
+    df: pd.DataFrame, trend_direction: str, ema9_value: float,
+    ema21_value: float, atr_value: float, fib_zone: str,
     bullish_reversal: bool, bearish_reversal: bool,
 ) -> dict:
-    """Detecta retração em zona técnica seguida de retomada da tendência."""
-    result = {"detected": False, "direction": "NEUTRO", "zone": "NONE", "strength": 0}
+    """Exige reteste da EMA 9/21 e retomada confirmada no candle fechado."""
+    result = {
+        "detected": False, "direction": "NEUTRO", "zone": "NONE",
+        "strength": 0, "ema_retest": False, "close_confirmed": False,
+    }
     if len(df) < 5 or atr_value <= 0 or trend_direction not in ("CALL", "PUT"):
         return result
 
     recent = df.tail(5)
     price = float(df.close.iloc[-1])
     previous_close = float(df.close.iloc[-2])
+    last_open = float(df.open.iloc[-1])
     tolerance = atr_value * 0.45
 
     if trend_direction == "CALL":
         extreme = float(recent.low.min())
-        ema_retest = abs(extreme - ema21_value) <= tolerance
-        reversal = bullish_reversal and price > previous_close
+        retest_ema9 = abs(extreme - ema9_value) <= tolerance
+        retest_ema21 = abs(extreme - ema21_value) <= tolerance
+        ema_retest = retest_ema9 or retest_ema21
+        # O candle precisa fechar positivo, acima do fechamento anterior e da EMA 9.
+        close_confirmed = (
+            price > last_open and price > previous_close and price > ema9_value
+        )
+        reversal = bullish_reversal and close_confirmed
     else:
         extreme = float(recent.high.max())
-        ema_retest = abs(extreme - ema21_value) <= tolerance
-        reversal = bearish_reversal and price < previous_close
+        retest_ema9 = abs(extreme - ema9_value) <= tolerance
+        retest_ema21 = abs(extreme - ema21_value) <= tolerance
+        ema_retest = retest_ema9 or retest_ema21
+        # Para PUT, confirmação simétrica: fechamento negativo abaixo do anterior e da EMA 9.
+        close_confirmed = (
+            price < last_open and price < previous_close and price < ema9_value
+        )
+        reversal = bearish_reversal and close_confirmed
 
     fib_retest = fib_zone in ("38.2", "50.0", "61.8")
-    zone = (
-        "EMA21_FIBONACCI" if ema_retest and fib_retest else
-        "EMA21" if ema_retest else
-        "FIBONACCI" if fib_retest else
-        "NONE"
-    )
-    detected = zone != "NONE" and reversal
+    if retest_ema9 and retest_ema21 and fib_retest:
+        zone = "EMA9_EMA21_FIBONACCI"
+    elif retest_ema21 and fib_retest:
+        zone = "EMA21_FIBONACCI"
+    elif retest_ema9 and fib_retest:
+        zone = "EMA9_FIBONACCI"
+    elif retest_ema21:
+        zone = "EMA21"
+    elif retest_ema9:
+        zone = "EMA9"
+    else:
+        zone = "NONE"
+
+    # Fibonacci é confluência adicional; sozinho não libera entrada de tendência.
+    detected = ema_retest and reversal
+    result.update({
+        "zone": zone,
+        "ema_retest": bool(ema_retest),
+        "close_confirmed": bool(close_confirmed),
+    })
     if detected:
-        strength = 55 + (20 if ema_retest else 0) + (15 if fib_retest else 0)
+        strength = 55 + (15 if retest_ema9 else 0) + (20 if retest_ema21 else 0) + (10 if fib_retest else 0)
         return {
             "detected": True, "direction": trend_direction,
             "zone": zone, "strength": min(100, strength),
+            "ema_retest": True, "close_confirmed": True,
         }
-    result["zone"] = zone
     return result
 
 
@@ -469,8 +498,13 @@ def _trend_component(
 Direction = Literal["CALL", "PUT", "NEUTRO"]
 
 
-def analyze_candles(candles: list[dict]) -> dict:
-    """Analisa velas fechadas mantendo assinatura e contrato do servidor."""
+def analyze_candles(
+    candles: list[dict], brain_profile: dict | None = None
+) -> dict:
+    """Analisa candles fechados; brain_profile é aceito pelo contrato do servidor.
+
+    O servidor deve fornecer somente candles cujo horário de fechamento já passou.
+    """
     # EMA 100 só é considerada válida com pelo menos 100 candles válidos.
     if not isinstance(candles, (list, tuple)) or len(candles) < 100:
         return {"ready": False, "reason": "Candles insuficientes para EMA 100"}
@@ -699,6 +733,7 @@ def analyze_candles(candles: list[dict]) -> dict:
     pullback_data = _pullback_analysis(
         df=df,
         trend_direction=trend_direction,
+        ema9_value=ma9_value,
         ema21_value=ma21_value,
         atr_value=atr_value,
         fib_zone=fib_zone,
@@ -838,16 +873,27 @@ def analyze_candles(candles: list[dict]) -> dict:
             if flow * direction_sign <= -0.35:
                 entry_filter_reasons.append("FLUXO_FORTE_CONTRA_REVERSAO")
         else:
+            # Para entradas de tendência, os cinco requisitos são bloqueantes:
+            # EMA100 alinhada, tendência alinhada, EMAs 9/21 alinhadas,
+            # reteste EMA9/21 e candle fechado confirmando retomada.
             if trend_direction != direction:
-                brain_score -= 8
-                entry_context_warnings.append("TENDENCIA_DIVERGENTE_PENALIZADA")
+                entry_filter_reasons.append("TENDENCIA_PRINCIPAL_NAO_ALINHADA")
             if ema100_direction != direction:
-                brain_score -= 5
-                entry_context_warnings.append("EMA100_DIVERGENTE_PENALIZADA")
-            # A direção agregada pode ser válida mesmo se a maioria estrita
-            # dos proxies de fluxo estiver neutra. Só oposição forte pesa muito.
+                entry_filter_reasons.append("EMA100_NAO_ALINHADA")
+            if ema_direction != direction:
+                entry_filter_reasons.append("EMA9_21_NAO_ALINHADAS")
+            if not pullback_data["detected"] or pullback_data["direction"] != direction:
+                entry_filter_reasons.append("PULLBACK_NAO_CONFIRMADO")
+            if not pullback_data["close_confirmed"]:
+                entry_filter_reasons.append("CANDLE_FECHADO_SEM_RETOMADA")
+            if adx_value < 16:
+                entry_filter_reasons.append("ADX_FRACO_PARA_TENDENCIA")
+
+            # Divergência moderada de fluxo reduz a nota; oposição forte bloqueia.
             aligned_flow_pressure = flow * direction_sign
-            if aligned_flow_pressure <= -0.20:
+            if aligned_flow_pressure <= -0.35:
+                entry_filter_reasons.append("FLUXO_FORTE_CONTRA_TENDENCIA")
+            elif aligned_flow_pressure <= -0.20:
                 brain_score -= 10
                 entry_context_warnings.append("FLUXO_CONTRARIO_PENALIZADO")
             elif flow_direction != direction:
@@ -926,6 +972,8 @@ def analyze_candles(candles: list[dict]) -> dict:
         "pullback_direction": pullback_data["direction"],
         "pullback_zone": pullback_data["zone"],
         "pullback_strength": int(pullback_data["strength"]),
+        "pullback_ema_retest": bool(pullback_data["ema_retest"]),
+        "pullback_close_confirmed": bool(pullback_data["close_confirmed"]),
         "sideways_market": sideways,
         "atr_value": round(atr_value, 8),
         "atr_median_50": round(atr_median, 8),
