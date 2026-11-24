@@ -2,7 +2,174 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1">/* ==========================================
+   PURPLE SIGNAL
+   INSTITUTIONAL TRADING DESIGN
+   ALTERAÇÃO EXCLUSIVAMENTE VISUAL
+========================================== */
+
+body {
+    background:
+        radial-gradient(
+            ellipse at 50% -15%,
+            #30204f 0%,
+            transparent 48%
+        ),
+        linear-gradient(
+            145deg,
+            #090b14,
+            #0d1120 55%,
+            #080a12
+        ) !important;
+    color: #edf0fa;
+}
+
+/* PAINÉIS */
+.panel {
+    background: linear-gradient(
+        145deg,
+        #151a2a,
+        #101421
+    ) !important;
+    border: 1px solid #30334a !important;
+    border-radius: 13px !important;
+    box-shadow: 0 10px 35px #0007 !important;
+}
+
+/* CAMPOS */
+.field {
+    background: #0b0f1b !important;
+    border: 1px solid #34364e !important;
+    color: #edf0fa !important;
+    border-radius: 8px !important;
+}
+
+.field:focus {
+    border-color: #a78bfa !important;
+    box-shadow: 0 0 0 2px #a78bfa22;
+}
+
+/* BOTÕES */
+.btn {
+    border-radius: 8px !important;
+    letter-spacing: .2px;
+    transition: .2s ease;
+}
+
+.btn-primary {
+    background: linear-gradient(
+        110deg,
+        #7042b9,
+        #9464e8
+    ) !important;
+    color: #fff !important;
+    border: 1px solid #a78bfa55 !important;
+}
+
+.btn-primary:hover:not(:disabled) {
+    filter: brightness(1.15);
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #20263a !important;
+    border: 1px solid #414660 !important;
+    color: #e2e5f2 !important;
+}
+
+.btn-danger {
+    background: #421e30 !important;
+    border: 1px solid #81364e !important;
+    color: #ffc6d4 !important;
+}
+
+/* ETIQUETAS */
+.pill {
+    background: #19182b !important;
+    border-color: #51416e !important;
+    color: #d8c7ff;
+}
+
+/* SINAIS */
+.signal-call {
+    color: #34d399 !important;
+}
+
+.signal-put {
+    color: #fb7185 !important;
+}
+
+.signal-neutral {
+    color: #fbbf24 !important;
+}
+
+/* TABELAS */
+th {
+    background: #171b2b;
+    color: #b7a4e8 !important;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    font-size: 10px !important;
+}
+
+td {
+    color: #dce2ef;
+}
+
+tr:hover {
+    background: #242039;
+}
+
+.row-hover:hover {
+    background: #242039 !important;
+    border-color: #8b65c8 !important;
+}
+
+/* INDICADORES */
+.dot.ok {
+    background: #34d399;
+    box-shadow: 0 0 10px #34d39988;
+}
+
+input[type="range"] {
+    accent-color: #a78bfa !important;
+}
+
+/* DESTAQUES */
+#hero-asset {
+    color: #c4a7ff;
+    letter-spacing: .3px;
+}
+
+#balance {
+    color: #c4a7ff;
+}
+
+/* PRESERVA AS CORES REAIS DO ESTADO DE RISCO */
+#risk-status.text-rose-300 {
+    color: #fb7185 !important;
+}
+
+#risk-status.text-emerald-300 {
+    color: #34d399 !important;
+}
+
+/* ANÁLISE */
+#three-candle-analysis {
+    border-color: #494064 !important;
+}
+
+/* LOGIN */
+#auth-panel .panel {
+    border-color: #554078 !important;
+}
+
+/* RESPONSIVIDADE */
+@media (max-width: 900px) {
+    .panel {
+        border-radius: 11px !important;
+    }
+}
   <title>Didi Fluxo Bot — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
