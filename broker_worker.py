@@ -88,11 +88,11 @@ def _open_assets(client) -> list[str]:
 
     result = sorted(names)
     open_count = sum("OTC" not in name.upper() for name in result)
-    otc_count = len(result) - open_count
+    OTC_count = len(result) - open_count
     logger.info(
-        "Ativos retornados pela API: total=%d, mercado_aberto=%d, otc=%d, "
+        "Ativos retornados pela API: total=%d, mercado_aberto=%d, OTC=%d, "
         "nomes_nao_reconhecidos=%d",
-        len(result), open_count, otc_count, rejected
+        len(result), open_count, OTC_count, rejected
     )
     return result
 
@@ -164,13 +164,13 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
             active_asset_names = list(info["assets"])
             info["assets_by_market"] = {
                 "open": [a for a in info["assets"] if "OTC" not in a.upper()],
-                "otc": [a for a in info["assets"] if "OTC" in a.upper()],
+                "OTC": [a for a in info["assets"] if "OTC" in a.upper()],
             }
             _log_stage(
                 "Carregamento dos ativos concluído; "
                 f"total={len(info['assets'])}, "
                 f"mercado_aberto={len(info['assets_by_market']['open'])}, "
-                f"otc={len(info['assets_by_market']['otc'])}",
+                f"OTC={len(info['assets_by_market']['OTC'])}",
                 started
             )
         except Exception:
