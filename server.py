@@ -682,42 +682,14 @@ async def _scan_loop(user_id: str) -> None:
 
                     closed = candle_cache.get(asset, [])
                     if closed:
-                        # A estratégia recebe somente candles já fechados e o perfil
-                        # de aprendizagem calculado para este utilizador.
-                        analysis = analyze_candles(
-                            closed,
-                            brain_profile=brain_profile,
-                        )
+                        analysis = analyze_candles(closed)
                         direction = str(analysis.get("direction", "NEUTRO")).upper()
                         is_ready = bool(analysis.get("ready"))
-
-                        # Compatibilidade com o contrato novo da strategy.py:
-                        # entry_ready pode vir no nível principal ou dentro de indicators.
-                        indicators = analysis.get("indicators") or {}
-                        entry_filter_passed = bool(
-                            analysis.get(
-                                "entry_filter_passed",
-                                indicators.get("entry_filter_passed", True),
-                            )
-                        )
-                        entry_ready = bool(
-                            analysis.get(
-                                "entry_ready",
-                                indicators.get("entry_ready", entry_filter_passed),
-                            )
-                        )
-                        is_confirmed = (
-                            is_ready
-                            and direction in {"CALL", "PUT"}
-                            and entry_filter_passed
-                            and entry_ready
-                        )
-
-                        market_type = market_type_for_asset(asset)
+                        is_confirmed = is_ready and direction in {"CALL", "PUT"}
                         item = {
                             "asset": asset,
-                            "market_type": market_type,
-                            "market_label": "OTC" if market_type == "otc" else "Mercado Aberto",
+                            "market_type": market_type_for_asset(asset),
+                            "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
                             "candle_ts": int(closed[-1]["ts"]),
                             "signal_ready": is_confirmed,
                             "status": (
@@ -726,8 +698,6 @@ async def _scan_loop(user_id: str) -> None:
                                 else "AGUARDANDO_DADOS"
                             ),
                             **analysis,
-                            "entry_filter_passed": entry_filter_passed,
-                            "entry_ready": entry_ready,
                         }
                         ranking_results.append(item)
                         if is_confirmed:
