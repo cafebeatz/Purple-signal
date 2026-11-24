@@ -1,7 +1,6 @@
-"""Purple Signal — estratégia consolidada v3.
-Base: versão atual de 1.009 linhas, comparada com a versão anterior funcional.
-Mantém analyze_candles(candles) e sma(series, period) para compatibilidade com server.py.
-O fluxo é estimado por OHLCV; não representa agressão bid/ask nem livro real.
+"""Purple Signal — fluxo, pressão, pullback e estrutura como núcleo direcional.
+A leitura de fluxo é uma estimativa baseada em OHLCV (corpo, sombras e volume quando disponível),
+pois a integração atual não fornece agressão bid/ask nem livro de ofertas.
 """
 from __future__ import annotations
 
@@ -546,9 +545,20 @@ def analyze_candles(candles: list[dict]) -> dict:
         ),
     )
 
-    # Valores anteriores das EMAs: usados no spread/inclinacao.
+    # EMAs 9 e 21 confirmam a direção; ambas precisam inclinar no mesmo sentido.
     ma9_previous = float(ma9.iloc[i - 3])
     ma21_previous = float(ma21.iloc[i - 3])
+    ma_bull = (
+        ma9_value > ma21_value
+        and ma9_value > ma9_previous
+        and ma21_value > ma21_previous
+    )
+    ma_bear = (
+        ma9_value < ma21_value
+        and ma9_value < ma9_previous
+        and ma21_value < ma21_previous
+    )
+    ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
 
     # EMA 100 define o regime direcional e será obrigatória no filtro de entrada.
     ema100_previous = float(ma100.iloc[i - 3])
@@ -595,19 +605,6 @@ def analyze_candles(candles: list[dict]) -> dict:
     rsi_bear = 20 < rsi_value < 50
     di_bull, di_bear = dp > dm, dm > dp
     adx_confirms = adx_value >= 16
-
-    # EMA 9 + EMA 21: confirmacao conjunta, contando como um unico voto.
-    ma_bull = (
-        ma9_value > ma21_value
-        and ma9_value > ma9_previous
-        and ma21_value > ma21_previous
-    )
-    ma_bear = (
-        ma9_value < ma21_value
-        and ma9_value < ma9_previous
-        and ma21_value < ma21_previous
-    )
-    ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
 
     k_now, d_now, j_now = float(k.iloc[i]), float(d.iloc[i]), float(j.iloc[i])
     kdj_bull = k_now > d_now and j_now > float(j.iloc[ip])
