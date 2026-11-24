@@ -1194,32 +1194,44 @@ async def chart(asset: str, user=Depends(get_current_user)):
             if not pd.isna(ma21.iloc[offset + i])
         ],
     }
+
 # ---------------------------------------------------------------------------
 # Servir o HTML
 # ---------------------------------------------------------------------------
 app.include_router(api)
+
 @app.get("/", include_in_schema=False)
 async def serve_frontend():
     candidates = (
-        ROOT_DIR / "template" / "index.html",
+        ROOT_DIR / "index_revisado.html",
         ROOT_DIR / "templates" / "index.html",
+        ROOT_DIR / "template" / "index.html",
         ROOT_DIR / "index.html",
         ROOT_DIR / "Purple_Signal_robo_interface.html",
     )
+
     for html_file in candidates:
-        if html_file.is_file():
-            return FileResponse(html_file)
+        if not html_file.is_file():
+            continue
+
+        try:
+            content = html_file.read_text(encoding="utf-8-sig")
+        except (OSError, UnicodeError):
+            continue
+
+        # Não entregar CSS, JavaScript ou texto puro como página HTML.
+        normalized = content.lstrip().lower()
+        if normalized.startswith("<!doctype html") or normalized.startswith("<html"):
+            return FileResponse(
+                html_file,
+                media_type="text/html",
+            )
+
     raise HTTPException(
         status_code=404,
-        detail="Interface HTML não encontrada na raiz do projeto.",
+        detail="Nenhum arquivo HTML válido foi encontrado. Verifique o deploy do index_revisado.html.",
     )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
 # ---------------------------------------------------------------------------
 # Índices e migração única do histórico antigo
 # ---------------------------------------------------------------------------
