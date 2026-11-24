@@ -51,7 +51,7 @@ def _patch_hosts(broker: str) -> None:
 
 
 def _open_assets(client) -> list[str]:
-    """Retorna ativos binários/turbo habilitados, incluindo mercado aberto e OTC."""
+    """Retorna ativos binários/turbo habilitados, incluindo mercado aberto e otc."""
     from iqoptionapi.constants import ACTIVES
 
     data = client.get_all_init_v2() or {}
@@ -87,12 +87,12 @@ def _open_assets(client) -> list[str]:
                 rejected += 1
 
     result = sorted(names)
-    open_count = sum("OTC" not in name.upper() for name in result)
-    OTC_count = len(result) - open_count
+    open_count = sum("otc" not in name.upper() for name in result)
+    otc_count = len(result) - open_count
     logger.info(
-        "Ativos retornados pela API: total=%d, mercado_aberto=%d, OTC=%d, "
+        "Ativos retornados pela API: total=%d, mercado_aberto=%d, otc=%d, "
         "nomes_nao_reconhecidos=%d",
-        len(result), open_count, OTC_count, rejected
+        len(result), open_count, otc_count, rejected
     )
     return result
 
@@ -163,14 +163,14 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
             info["assets"] = _open_assets(client)
             active_asset_names = list(info["assets"])
             info["assets_by_market"] = {
-                "open": [a for a in info["assets"] if "OTC" not in a.upper()],
-                "OTC": [a for a in info["assets"] if "OTC" in a.upper()],
+                "open": [a for a in info["assets"] if "otc" not in a.upper()],
+                "otc": [a for a in info["assets"] if "otc" in a.upper()],
             }
             _log_stage(
                 "Carregamento dos ativos concluído; "
                 f"total={len(info['assets'])}, "
                 f"mercado_aberto={len(info['assets_by_market']['open'])}, "
-                f"OTC={len(info['assets_by_market']['OTC'])}",
+                f"otc={len(info['assets_by_market']['otc'])}",
                 started
             )
         except Exception:
