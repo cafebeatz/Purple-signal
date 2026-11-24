@@ -1,36 +1,4 @@
-"candles": out,
-        "ma9": [
-            {"ts": c["ts"], "value": float(ma9.iloc[offset + i])}
-            for i, c in enumerate(out)
-            if not pd.isna(ma9.iloc[offset + i])
-        ],
-        "ma21": [
-            {"ts": c["ts"], "value": float(ma21.iloc[offset + i])}
-            for i, c in enumerate(out)
-            if not pd.isna(ma21.iloc[offset + i])
-        ],
-    }
-# ---------------------------------------------------------------------------
-# Servir o HTML
-# ---------------------------------------------------------------------------
-app.include_router(api)
-@app.get("/", include_in_schema=False)
-async def serve_frontend():
-    candidates = (
-        ROOT_DIR / "template" / "index.html",
-        ROOT_DIR / "templates" / "index.html",
-        ROOT_DIR / "index.html",
-        ROOT_DIR / "Purple_Signal_robo_interface.html",
-    )
-    for html_file in candidates:
-        if html_file.is_file():
-            return FileResponse(html_file)
-    raise HTTPException(
-        status_code=404,
-        detail="Interface HTML não encontrada na raiz do projeto.",
-    )
-app.add_middleware(
-    CORSMiddleware,
+CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
@@ -88,8 +56,40 @@ async def seed_admin() -> None:
     )
     logger.info("Admin seed criado: %s", email)
 async def clear_legacy_signals_once() -> None:
-    """Compatibilidade com o startup antigo; preserva integralmente o histórico."""
-    logger.info("Migração de histórico ignorada: sinais existentes foram preservados.")
+    """Limpa dados operacionais legados uma única vez na migração para a V3.
+
+    A marca é gravada somente depois das exclusões. Se o processo cair durante
+    a limpeza, a próxima inicialização pode repetir as exclusões com segurança.
+    Usuários, credenciais, configurações e demais dados de conta não são tocados.
+    """
+    migration_id = "purple_signal_v3_operational_history_reset"
+    migrations = db["schema_migrations"]
+
+    if await migrations.find_one({"_id": migration_id}):
+        logger.info("Migração V3 já aplicada; histórico operacional preservado.")
+        return
+
+    signals_result = await db.signals.delete_many({})
+    brain_result = await db.strategy_brain_events.delete_many({})
+
+    try:
+        await migrations.insert_one({
+            "_id": migration_id,
+            "applied_at": iso_now(),
+            "deleted_signals": signals_result.deleted_count,
+            "deleted_brain_events": brain_result.deleted_count,
+        })
+    except Exception:
+        # Em inicializações concorrentes, outra instância pode gravar a mesma
+        # marca após executar as mesmas exclusões. Só ignoramos se ela existir.
+        if not await migrations.find_one({"_id": migration_id}):
+            raise
+
+    logger.warning(
+        "Migração V3 aplicada: %s sinais/operações/sessões e %s eventos de aprendizagem removidos.",
+        signals_result.deleted_count,
+        brain_result.deleted_count,
+    )
 @app.on_event("startup")
 async def startup() -> None:
     for collection, models in INDEXES.items():
