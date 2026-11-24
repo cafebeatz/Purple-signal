@@ -25,7 +25,12 @@ def rsi(series: pd.Series, period: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    return (100 - 100 / (1 + rs)).fillna(50)
+    result = 100 - 100 / (1 + rs)
+    # RSI convencional: sem perdas e com ganhos, RSI=100; sem ganhos e com
+    # perdas, RSI=0; sem movimento em ambos os lados, RSI neutro=50.
+    result = result.where(avg_loss > 0, np.where(avg_gain > 0, 100.0, 50.0))
+    result = result.where(avg_gain > 0, np.where(avg_loss > 0, 0.0, 50.0))
+    return result.fillna(50)
 
 
 def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
@@ -578,6 +583,33 @@ def analyze_candles(candles: list[dict]) -> dict:
         )
     )
 
+    # Proteção de CALL em sobrecompra: exige pullback prévio na EMA 9 e retomada.
+    # Usa a EMA 9 histórica de cada candle, evitando comparar candles antigos
+    # com o valor atual da média. O candle atual precisa fechar acima da EMA 9,
+    # ser comprador e superar o fechamento anterior.
+    kdj_overbought = max(k_now, d_now) >= 95.0
+    rsi_kdj_overbought_call = rsi_value >= 84.0 and kdj_overbought
+    ema9_pullback_lookback = min(8, i)
+    ema9_pullback_tolerance = max(atr_value * 0.15, abs(price) * 0.00003)
+    ema9_pullback_seen = False
+    if ema9_pullback_lookback > 0:
+        start_idx = i - ema9_pullback_lookback
+        for pull_idx in range(start_idx, i):
+            historical_ema9 = float(ma9.iloc[pull_idx])
+            historical_low = float(low.iloc[pull_idx])
+            if historical_low <= historical_ema9 + ema9_pullback_tolerance:
+                ema9_pullback_seen = True
+                break
+    ema9_recovery_confirmed = bool(
+        ema9_pullback_seen
+        and last_close > last_open
+        and last_close > ma9_value
+        and last_close > previous_price
+    )
+    overbought_call_block = bool(
+        rsi_kdj_overbought_call and not ema9_recovery_confirmed
+    )
+
     # Fibonacci: zonas de confluência, não gatilhos isolados.
     fib_window = min(100, len(df))
     fib_high = float(high.tail(fib_window).max())
@@ -713,6 +745,10 @@ def analyze_candles(candles: list[dict]) -> dict:
         if confirm_count < 2:
             entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES")
 
+        # Em sobrecompra simultânea, CALL só é liberada após pullback e retomada na EMA 9.
+        if direction == "CALL" and overbought_call_block:
+            entry_filter_reasons.append("SOBRECOMPRA_AGUARDANDO_PULLBACK_EMA9")
+
         # Proteções de volatilidade continuam como bloqueios rígidos.
         if volatility_too_low:
             entry_filter_reasons.append("VOLATILIDADE_BAIXA")
@@ -829,6 +865,11 @@ def analyze_candles(candles: list[dict]) -> dict:
         "ema_bear_alignment": bool(ema_bear_alignment),
         "ema_retest_call": bool(ema_retest_call),
         "ema_retest_put": bool(ema_retest_put),
+        "ema9_pullback_seen": bool(ema9_pullback_seen),
+        "ema9_recovery_confirmed": bool(ema9_recovery_confirmed),
+        "rsi_kdj_overbought_call": bool(rsi_kdj_overbought_call),
+        "overbought_call_block": bool(overbought_call_block),
+        "ema9_pullback_lookback": int(ema9_pullback_lookback),
         "ema_cross_up_recent": recent_cross_up is not None,
         "ema_cross_down_recent": recent_cross_down is not None,
         "ema_touch_count_call": int(touch_count_call),
@@ -870,6 +911,8 @@ def analyze_candles(candles: list[dict]) -> dict:
         "rsi_period": 14,
         "rsi_overbought": 80,
         "rsi_oversold": 20,
+        "rsi_kdj_call_block_threshold": 84,
+        "kdj_call_block_threshold": 95,
         "adx": round(adx_value, 2),
         "adx_status": (
             "FORTE" if adx_value >= 25 else
