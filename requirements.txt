@@ -140,3 +140,5 @@ pydantic
 bcrypt
 pyjwt
 pandas
+requests>=2.31
+
