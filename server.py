@@ -1,4 +1,36 @@
-CORSMiddleware,
+"candles": out,
+        "ma9": [
+            {"ts": c["ts"], "value": float(ma9.iloc[offset + i])}
+            for i, c in enumerate(out)
+            if not pd.isna(ma9.iloc[offset + i])
+        ],
+        "ma21": [
+            {"ts": c["ts"], "value": float(ma21.iloc[offset + i])}
+            for i, c in enumerate(out)
+            if not pd.isna(ma21.iloc[offset + i])
+        ],
+    }
+# ---------------------------------------------------------------------------
+# Servir o HTML
+# ---------------------------------------------------------------------------
+app.include_router(api)
+@app.get("/", include_in_schema=False)
+async def serve_frontend():
+    candidates = (
+        ROOT_DIR / "template" / "index.html",
+        ROOT_DIR / "templates" / "index.html",
+        ROOT_DIR / "index.html",
+        ROOT_DIR / "Purple_Signal_robo_interface.html",
+    )
+    for html_file in candidates:
+        if html_file.is_file():
+            return FileResponse(html_file)
+    raise HTTPException(
+        status_code=404,
+        detail="Interface HTML não encontrada na raiz do projeto.",
+    )
+app.add_middleware(
+    CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
