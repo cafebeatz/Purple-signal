@@ -133,6 +133,7 @@ def _hidden_structure_confluence(
     return 0, "NONE"
 
 
+
 def _market_structure_analysis(df: pd.DataFrame, atr_value: float) -> dict:
     """Classifica a estrutura confirmada de topos/fundos."""
     empty = {
@@ -765,3 +766,412 @@ def analyze_candles(
     fib_position = 0.0
     fib_confirmation = False
     fib_direction = "NEUTRO"
+    fib_tolerance = max(atr_value * 0.20, abs(price) * 0.00005)
+
+    if fib_range > 0:
+        fib_up = {
+            "38.2": fib_high - fib_range * 0.382,
+            "50.0": fib_high - fib_range * 0.500,
+            "61.8": fib_high - fib_range * 0.618,
+        }
+        fib_down = {
+            "38.2": fib_low + fib_range * 0.382,
+            "50.0": fib_low + fib_range * 0.500,
+            "61.8": fib_low + fib_range * 0.618,
+        }
+        fib_levels = fib_up if trend_direction == "CALL" else fib_down
+        nearest_fib_name, nearest_fib_price = min(
+            fib_levels.items(), key=lambda item: abs(price - item[1])
+        )
+        fib_position = (price - fib_low) / fib_range
+
+        if abs(price - nearest_fib_price) <= fib_tolerance:
+            fib_zone = nearest_fib_name
+            fib_confirmation = (
+                (trend_direction == "CALL" and bullish_reversal_candle)
+                or (trend_direction == "PUT" and bearish_reversal_candle)
+            )
+            if fib_confirmation:
+                fib_direction = trend_direction
+                if direction == fib_direction:
+                    confirm_count += 1
+
+    pullback_data = _pullback_analysis(
+        df=df,
+        trend_direction=trend_direction,
+        ema21_value=ma21_value,
+        atr_value=atr_value,
+        fib_zone=fib_zone,
+        bullish_reversal=bullish_reversal_candle,
+        bearish_reversal=bearish_reversal_candle,
+    )
+    if pullback_data["detected"] and direction == pullback_data["direction"]:
+        confirm_count += 1
+
+    mean_reversion_direction = "NEUTRO"
+    mean_reversion_confirmations = 0
+
+    if (
+        atr_value > 0
+        and distance_from_ema21_atr <= -1.0
+        and bullish_reversal_candle
+    ):
+        mean_reversion_confirmations = sum(
+            [macd_bull, rsi_value < 50, di_bull, kdj_bull]
+        )
+        if mean_reversion_confirmations >= 2:
+            mean_reversion_direction = "CALL"
+
+    elif (
+        atr_value > 0
+        and distance_from_ema21_atr >= 1.0
+        and bearish_reversal_candle
+    ):
+        mean_reversion_confirmations = sum(
+            [macd_bear, rsi_value > 50, di_bear, kdj_bear]
+        )
+        if mean_reversion_confirmations >= 2:
+            mean_reversion_direction = "PUT"
+
+    signal_mode = "FLOW"
+    if mean_reversion_direction != "NEUTRO":
+        # Reversão pode contrariar a tendência principal, mas não um fluxo
+        # estimado fortemente oposto. Fluxo OHLCV fraco/neutro não veta o setup.
+        reversal_sign = 1.0 if mean_reversion_direction == "CALL" else -1.0
+        strong_opposing_flow = flow * reversal_sign <= -0.35
+        if (
+            direction == "NEUTRO"
+            or direction == mean_reversion_direction
+            or not strong_opposing_flow
+        ):
+            direction = mean_reversion_direction
+            signal_mode = "MEAN_REVERSION"
+            confirm_count = mean_reversion_confirmations
+
+    # Indicadores confirmam, mas não podem trocar CALL por PUT ou vice-versa.
+    if direction != "NEUTRO" and confirm_count < 2:
+        direction = "NEUTRO"
+
+    diagnostics = _flow_diagnostics(df, atr_value)
+    last_candle_direction = (
+        "CALL" if last_close > last_open else
+        "PUT" if last_close < last_open else
+        "NEUTRO"
+    )
+    absorption_conflict = (
+        diagnostics["absorption_detected"]
+        and direction != "NEUTRO"
+        and last_candle_direction not in ("NEUTRO", direction)
+    )
+
+    structure_bonus, _private_structure_tag = _hidden_structure_confluence(
+        df, direction, atr_value
+    )
+    market_structure = _market_structure_analysis(df, atr_value)
+    brain_score = 0
+    if direction != "NEUTRO":
+        brain_score = (
+            35
+            + min(20, flow_strength // 3)
+            + min(25, confirm_count * 5)
+        )
+        brain_score += (
+            10 if adx_value >= 25 else
+            5 if adx_value >= 20 else
+            0
+        )
+        brain_score += structure_bonus
+        if market_structure["direction"] == direction:
+            brain_score += 5
+        elif market_structure["direction"] in ("CALL", "PUT"):
+            brain_score -= 5
+        if pullback_data["detected"] and pullback_data["direction"] == direction:
+            brain_score += 4
+        brain_score -= 15 if absorption_conflict else 0
+        brain_score -= 10 if diagnostics["absorption_detected"] else 0
+        if signal_mode == "MEAN_REVERSION":
+            brain_score += 3
+        brain_score = max(0, min(97, brain_score))
+
+        if absorption_conflict and brain_score < 65:
+            direction = "NEUTRO"
+
+    # Filtro de qualidade: contexto e tendência/EMA100 pesam na nota,
+    # mas deixam de ser vetos absolutos. Só dados/condições realmente ruins
+    # bloqueiam a entrada. Mantém a assinatura e os campos esperados pelo servidor.
+    entry_filter_reasons = []
+    entry_context_warnings = []
+    if direction != "NEUTRO":
+        if market_structure["direction"] not in ("NEUTRO", direction):
+            entry_context_warnings.append("ESTRUTURA_CONTRARIA")
+        if market_structure["direction"] == direction:
+            entry_context_warnings.append("ESTRUTURA_ALINHADA")
+        if pullback_data["detected"] and pullback_data["direction"] == direction:
+            entry_context_warnings.append("PULLBACK_CONFIRMADO")
+    if direction == "NEUTRO":
+        entry_filter_reasons.append("DIRECAO_NAO_CONFIRMADA")
+    else:
+        direction_sign = 1.0 if direction == "CALL" else -1.0
+
+        # Duas confirmações independentes continuam obrigatórias.
+        if confirm_count < 2:
+            entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES")
+
+        # Proteções de volatilidade continuam como bloqueios rígidos.
+        if volatility_too_low:
+            entry_filter_reasons.append("VOLATILIDADE_BAIXA")
+        if volatility_spike:
+            entry_filter_reasons.append("PICO_DE_VOLATILIDADE")
+
+        # ADX muito baixo continua bloqueado. Faixa lateral moderada exige
+        # confirmação/nota maiores, em vez de vetar qualquer oportunidade.
+        if adx_value < 12:
+            entry_filter_reasons.append("MERCADO_SEM_FORCA_MINIMA")
+
+        if signal_mode == "MEAN_REVERSION":
+            # A reversão não precisa estar alinhada à tendência/EMA100.
+            if trend_direction != direction:
+                entry_context_warnings.append("REVERSAO_CONTRA_TENDENCIA")
+            if ema100_direction != direction:
+                brain_score -= 5
+                entry_context_warnings.append("EMA100_CONTRARIA_A_REVERSAO")
+            if flow * direction_sign <= -0.35:
+                entry_filter_reasons.append("FLUXO_FORTE_CONTRA_REVERSAO")
+        else:
+            if trend_direction != direction:
+                brain_score -= 8
+                entry_context_warnings.append("TENDENCIA_DIVERGENTE_PENALIZADA")
+            if ema100_direction != direction:
+                brain_score -= 5
+                entry_context_warnings.append("EMA100_DIVERGENTE_PENALIZADA")
+            # A direção agregada pode ser válida mesmo se a maioria estrita
+            # dos proxies de fluxo estiver neutra. Só oposição forte pesa muito.
+            aligned_flow_pressure = flow * direction_sign
+            if aligned_flow_pressure <= -0.20:
+                brain_score -= 10
+                entry_context_warnings.append("FLUXO_CONTRARIO_PENALIZADO")
+            elif flow_direction != direction:
+                brain_score -= 3
+                entry_context_warnings.append("FLUXO_SEM_MAIORIA_DIRECIONAL")
+
+        if sideways:
+            brain_score -= 8
+            entry_context_warnings.append("ADX_EM_FAIXA_LATERAL")
+
+        brain_score = max(0, min(97, brain_score))
+        minimum_score = 63 if sideways else 55
+        minimum_confirms = 3 if sideways else 2
+        if confirm_count < minimum_confirms:
+            entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES_PARA_ADX")
+        if brain_score < minimum_score:
+            entry_filter_reasons.append("PONTUACAO_ABAIXO_DO_MINIMO")
+
+        if entry_filter_reasons:
+            direction = "NEUTRO"
+            brain_score = 0
+
+    # Persistência das EMAs nas quatro últimas velas fechadas, calculada
+    # depois da decisão direcional final para também cobrir setups de reversão.
+    ema_persistence_count = 0
+    if direction in ("CALL", "PUT"):
+        for offset in range(3, -1, -1):
+            idx = i - offset
+            if idx < 1:
+                ema_persistence_count = 0
+                continue
+            e9_now, e21_now = float(ma9.iloc[idx]), float(ma21.iloc[idx])
+            e9_prev, e21_prev = float(ma9.iloc[idx - 1]), float(ma21.iloc[idx - 1])
+            if not all(np.isfinite(v) for v in (e9_now, e21_now, e9_prev, e21_prev)):
+                ema_persistence_count = 0
+                continue
+            bullish_bar = e9_now > e21_now and e9_now > e9_prev and e21_now > e21_prev
+            bearish_bar = e9_now < e21_now and e9_now < e9_prev and e21_now < e21_prev
+            if (direction == "CALL" and bullish_bar) or (direction == "PUT" and bearish_bar):
+                ema_persistence_count += 1
+            else:
+                ema_persistence_count = 0
+    ema_four_candle_confirmed = bool(
+        direction in ("CALL", "PUT") and ema_persistence_count == 4
+    )
+
+    confidence = int(brain_score) if direction != "NEUTRO" else 0
+
+    entry_filter_passed = not bool(entry_filter_reasons) and direction in ("CALL", "PUT")
+    structure_not_opposed = market_structure.get("direction") in ("NEUTRO", direction)
+    entry_ready = bool(
+        entry_filter_passed
+        and ema_four_candle_confirmed
+        and structure_not_opposed
+    )
+
+    brain_snapshot = _quantum_brain_snapshot(
+        direction=direction,
+        trend_direction=trend_direction,
+        flow_direction=flow_direction,
+        market_structure=market_structure,
+        confirm_count=confirm_count,
+        rsi_value=rsi_value,
+        adx_value=adx_value,
+        flow=flow,
+        macd_bull=macd_bull,
+        macd_bear=macd_bear,
+        di_bull=di_bull,
+        di_bear=di_bear,
+        kdj_bull=kdj_bull,
+        kdj_bear=kdj_bear,
+        ema_direction=ema_direction,
+    )
+    quantum_brain = _apply_quantum_brain(confidence, brain_profile, brain_snapshot)
+    if direction in ("CALL", "PUT") and quantum_brain["active"]:
+        confidence = max(0, min(100, confidence + quantum_brain["confidence_adjustment"]))
+
+    macd_cross_up = (
+        float(macd_line.iloc[ip]) <= float(macd_signal.iloc[ip])
+        and macd_bull
+    )
+    macd_cross_down = (
+        float(macd_line.iloc[ip]) >= float(macd_signal.iloc[ip])
+        and macd_bear
+    )
+    di_cross_up = (
+        float(plus_di.iloc[ip]) <= float(minus_di.iloc[ip])
+        and di_bull
+    )
+    di_cross_down = (
+        float(plus_di.iloc[ip]) >= float(minus_di.iloc[ip])
+        and di_bear
+    )
+
+    indicators = {
+        "flow_direction": flow_direction,
+        "flow_pressure": round(flow, 3),
+        "flow_strength": flow_strength,
+        "flow_source": "ESTIMADO_OHLCV",
+        "flow_volume_available": bool(flow_data["volume_available"]),
+        "flow_active_vote_count": int(flow_data["active_vote_count"]),
+        "market_flow": round(flow_data["market_flow"], 3),
+        "candle_flow": round(flow_data["candle_flow"], 3),
+        "candle_body_flow": round(flow_data["candle_body_flow"], 3),
+        "candle_wick_flow": round(flow_data["candle_wick_flow"], 3),
+        "candle_volume_flow": round(flow_data["candle_volume_flow"], 3),
+        "market_volume_flow": round(flow_data["market_volume_flow"], 3),
+        "flow_bullish_votes": int(flow_data["bullish_votes"]),
+        "flow_bearish_votes": int(flow_data["bearish_votes"]),
+        "trend_direction": trend_direction,
+        "trend_slope_atr": round(trend_data["slope_atr"], 4),
+        "trend_component_strength": int(trend_data["strength"]),
+        "direction_trend_vote": trend_direction,
+        "direction_bullish_votes": int(direction_bullish_votes),
+        "direction_bearish_votes": int(direction_bearish_votes),
+        "direction_vote_count": int(len(direction_votes)),
+        "direction_strength": int(direction_strength),
+        "trend_strength": trend_strength,
+        "market_structure": market_structure["structure"],
+        "market_structure_direction": market_structure["direction"],
+        "structure_higher_high": market_structure["higher_high"],
+        "structure_higher_low": market_structure["higher_low"],
+        "structure_lower_high": market_structure["lower_high"],
+        "structure_lower_low": market_structure["lower_low"],
+        "structure_breakout": market_structure["breakout"],
+        "last_swing_high": market_structure["last_swing_high"],
+        "last_swing_low": market_structure["last_swing_low"],
+        "pullback_detected": bool(pullback_data["detected"]),
+        "pullback_direction": pullback_data["direction"],
+        "pullback_zone": pullback_data["zone"],
+        "pullback_strength": int(pullback_data["strength"]),
+        "sideways_market": sideways,
+        "atr_value": round(atr_value, 8),
+        "atr_median_50": round(atr_median, 8),
+        "atr_relative_ratio": round(atr_ratio, 3),
+        "volatility_too_low": volatility_too_low,
+        "volatility_spike": volatility_spike,
+        "entry_filter_passed": not bool(entry_filter_reasons),
+        "entry_ready": entry_ready,
+        "entry_status": (
+            "CONFIRMADO_QUARTA_VELA" if entry_ready else
+            "AGUARDANDO_QUATRO_VELAS_EMA" if entry_filter_passed and not ema_four_candle_confirmed else
+            "BLOQUEADO_PELOS_FILTROS"
+        ),
+        "structure_not_opposed": bool(structure_not_opposed),
+        "ema_persistence_count": int(ema_persistence_count),
+        "ema_four_candle_confirmed": bool(ema_four_candle_confirmed),
+        "quantum_brain_active": bool(quantum_brain["active"]),
+        "quantum_brain_adjustment": int(quantum_brain["confidence_adjustment"]),
+        "entry_filter_reasons": entry_filter_reasons,
+        "entry_context_warnings": entry_context_warnings,
+        "ema_spread_atr": round(ema_spread_atr, 3),
+        "ema_slope_atr": round(ema_slope_atr, 3),
+        "ema9": round(ma9_value, 6),
+        "ema21": round(ma21_value, 6),
+        "ema100": round(ma100_value, 6),
+        "ema_confirmation": ema_direction,
+        "ema100_direction": ema100_direction,
+        "ema100_filter": ema100_direction,
+        "kdj_k": round(k_now, 2),
+        "kdj_d": round(d_now, 2),
+        "kdj_j": round(j_now, 2),
+        "kdj_direction": kdj_direction,
+        "macd": round(float(macd_line.iloc[i]), 6),
+        "macd_signal": round(float(macd_signal.iloc[i]), 6),
+        "macd_status": (
+            "COMPRA" if macd_cross_up else
+            "VENDA" if macd_cross_down else
+            "ALTA" if macd_bull else
+            "BAIXA"
+        ),
+        "rsi": round(rsi_value, 2),
+        "rsi_status": (
+            "SOBRECOMPRA" if rsi_value >= 80 else
+            "SOBREVENDA" if rsi_value <= 20 else
+            "COMPRA" if rsi_bull else
+            "VENDA" if rsi_bear else
+            "NEUTRO"
+        ),
+        "rsi_period": 14,
+        "rsi_overbought": 80,
+        "rsi_oversold": 20,
+        "adx": round(adx_value, 2),
+        "adx_status": (
+            "FORTE" if adx_value >= 25 else
+            "MODERADO" if adx_value >= 20 else
+            "FRACO"
+        ),
+        "di_plus": round(dp, 2),
+        "di_minus": round(dm, 2),
+        "didi_status": (
+            "AGULHADA COMPRA" if di_cross_up else
+            "AGULHADA VENDA" if di_cross_down else
+            "DI+ > DI-" if di_bull else
+            "DI- > DI+"
+        ),
+        "entry_confirmations": int(confirm_count),
+        "brain_score": int(brain_score),
+        "signal_mode": signal_mode if direction != "NEUTRO" else "NONE",
+        "mean_reversion_direction": mean_reversion_direction,
+        "mean_reversion_distance_atr": round(distance_from_ema21_atr, 3),
+        "mean_reversion_threshold_atr": 1.0,
+        "mean_reversion_confirmations": int(mean_reversion_confirmations),
+        "fibonacci_zone": fib_zone,
+        "fibonacci_direction": fib_direction,
+        "fibonacci_confirmation": bool(fib_confirmation),
+        "fibonacci_position": round(fib_position, 4),
+        "fibonacci_38_2": round(float(fib_levels.get("38.2", 0.0)), 6),
+        "fibonacci_50": round(float(fib_levels.get("50.0", 0.0)), 6),
+        "fibonacci_61_8": round(float(fib_levels.get("61.8", 0.0)), 6),
+        "fibonacci_tolerance": round(fib_tolerance, 6),
+        "fibonacci_lookback": int(fib_window),
+        "absorption_source": "ESTIMADO_OHLCV",
+        **diagnostics,
+    }
+
+    return {
+        "ready": True,
+        "direction": direction,
+        "confidence": confidence,
+        "price": price,
+        "entry_filter_passed": bool(entry_filter_passed),
+        "entry_ready": bool(entry_ready),
+        "brain_snapshot": brain_snapshot,
+        "quantum_brain": quantum_brain,
+        "indicators": indicators,
+    }
