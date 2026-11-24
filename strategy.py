@@ -469,107 +469,7 @@ def _trend_component(
 Direction = Literal["CALL", "PUT", "NEUTRO"]
 
 
-def _brain_band(value: float, limits: tuple[float, ...], labels: tuple[str, ...]) -> str:
-    """Converte um indicador em faixa estável para identificar padrões recorrentes."""
-    for limit, label in zip(limits, labels):
-        if value < limit:
-            return label
-    return labels[-1]
-
-
-def _quantum_brain_snapshot(
-    direction: str,
-    trend_direction: str,
-    flow_direction: str,
-    market_structure: dict,
-    confirm_count: int,
-    rsi_value: float,
-    adx_value: float,
-    flow: float,
-    macd_bull: bool,
-    macd_bear: bool,
-    di_bull: bool,
-    di_bear: bool,
-    kdj_bull: bool,
-    kdj_bear: bool,
-    ema_direction: str,
-) -> dict:
-    """Cria uma chave determinística do contexto, sem usar dados futuros."""
-    structure_direction = market_structure.get("direction", "NEUTRO")
-    pattern_parts = (
-        direction,
-        trend_direction,
-        flow_direction,
-        structure_direction,
-        f"C{min(max(int(confirm_count), 0), 7)}",
-        f"RSI_{_brain_band(float(rsi_value), (30, 45, 55, 70), ('MUITO_BAIXO', 'BAIXO', 'ALTO', 'MUITO_ALTO', 'EXTREMO'))}",
-        f"ADX_{_brain_band(float(adx_value), (12, 16, 25), ('MUITO_FRACO', 'FRACO', 'MODERADO', 'FORTE'))}",
-        f"FLOW_{_brain_band(float(flow), (-0.35, -0.10, 0.10, 0.35), ('VENDA_FORTE', 'VENDA', 'NEUTRO', 'COMPRA', 'COMPRA_FORTE'))}",
-        "MACD_ALTA" if macd_bull else "MACD_BAIXA" if macd_bear else "MACD_NEUTRO",
-        "DI_ALTA" if di_bull else "DI_BAIXA" if di_bear else "DI_NEUTRO",
-        "KDJ_ALTA" if kdj_bull else "KDJ_BAIXA" if kdj_bear else "KDJ_NEUTRO",
-        f"EMA_{ema_direction}",
-    )
-    return {
-        "pattern_key": "|".join(pattern_parts),
-        "direction": direction,
-        "trend": trend_direction,
-        "flow": flow_direction,
-        "structure": structure_direction,
-        "confirmations": int(confirm_count),
-        "rsi_band": pattern_parts[5],
-        "adx_band": pattern_parts[6],
-        "flow_band": pattern_parts[7],
-        "macd": pattern_parts[8],
-        "di": pattern_parts[9],
-        "kdj": pattern_parts[10],
-        "ema": ema_direction,
-    }
-
-
-def _apply_quantum_brain(confidence: int, brain_profile: dict | None, snapshot: dict) -> dict:
-    """Ajuste limitado de confiança com histórico; nunca altera a direção."""
-    result = {
-        "active": False,
-        "samples": 0,
-        "estimated_win_rate": None,
-        "confidence_adjustment": 0,
-        "pattern_key": snapshot["pattern_key"],
-    }
-    if not isinstance(brain_profile, dict):
-        return result
-
-    stats = brain_profile.get(snapshot["pattern_key"])
-    if not isinstance(stats, dict):
-        return result
-
-    try:
-        wins = max(0.0, float(stats.get("wins", 0) or 0))
-        losses = max(0.0, float(stats.get("losses", 0) or 0))
-        ties = max(0.0, float(stats.get("ties", 0) or 0))
-    except (TypeError, ValueError):
-        return result
-
-    samples = wins + losses + ties
-    result["samples"] = int(samples)
-    if samples < 8:
-        return result
-
-    effective_wins = wins + ties * 0.5
-    effective_losses = losses + ties * 0.5
-    estimated_rate = (effective_wins + 2.0) / (effective_wins + effective_losses + 4.0)
-    adjustment = int(round(max(-5.0, min(5.0, (estimated_rate - 0.5) * 20.0))))
-    result.update({
-        "active": True,
-        "estimated_win_rate": round(estimated_rate * 100.0, 2),
-        "confidence_adjustment": adjustment,
-    })
-    return result
-
-
-def analyze_candles(
-    candles: list[dict], brain_profile: dict | None = None
-) -> dict:
+def analyze_candles(candles: list[dict]) -> dict:
     """Analisa velas fechadas mantendo assinatura e contrato do servidor."""
     # EMA 100 só é considerada válida com pelo menos 100 candles válidos.
     if not isinstance(candles, (list, tuple)) or len(candles) < 100:
@@ -645,9 +545,20 @@ def analyze_candles(
         ),
     )
 
-    # Valores anteriores das EMAs: usados no spread/inclinacao.
+    # EMAs 9 e 21 confirmam a direção; ambas precisam inclinar no mesmo sentido.
     ma9_previous = float(ma9.iloc[i - 3])
     ma21_previous = float(ma21.iloc[i - 3])
+    ma_bull = (
+        ma9_value > ma21_value
+        and ma9_value > ma9_previous
+        and ma21_value > ma21_previous
+    )
+    ma_bear = (
+        ma9_value < ma21_value
+        and ma9_value < ma9_previous
+        and ma21_value < ma21_previous
+    )
+    ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
 
     # EMA 100 define o regime direcional e será obrigatória no filtro de entrada.
     ema100_previous = float(ma100.iloc[i - 3])
@@ -694,19 +605,6 @@ def analyze_candles(
     rsi_bear = 20 < rsi_value < 50
     di_bull, di_bear = dp > dm, dm > dp
     adx_confirms = adx_value >= 16
-
-    # EMA 9 + EMA 21: confirmacao conjunta, contando como um unico voto.
-    ma_bull = (
-        ma9_value > ma21_value
-        and ma9_value > ma9_previous
-        and ma21_value > ma21_previous
-    )
-    ma_bear = (
-        ma9_value < ma21_value
-        and ma9_value < ma9_previous
-        and ma21_value < ma21_previous
-    )
-    ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
 
     k_now, d_now, j_now = float(k.iloc[i]), float(d.iloc[i]), float(j.iloc[i])
     kdj_bull = k_now > d_now and j_now > float(j.iloc[ip])
@@ -970,60 +868,7 @@ def analyze_candles(
             direction = "NEUTRO"
             brain_score = 0
 
-    # Persistência das EMAs nas quatro últimas velas fechadas, calculada
-    # depois da decisão direcional final para também cobrir setups de reversão.
-    ema_persistence_count = 0
-    if direction in ("CALL", "PUT"):
-        for offset in range(3, -1, -1):
-            idx = i - offset
-            if idx < 1:
-                ema_persistence_count = 0
-                continue
-            e9_now, e21_now = float(ma9.iloc[idx]), float(ma21.iloc[idx])
-            e9_prev, e21_prev = float(ma9.iloc[idx - 1]), float(ma21.iloc[idx - 1])
-            if not all(np.isfinite(v) for v in (e9_now, e21_now, e9_prev, e21_prev)):
-                ema_persistence_count = 0
-                continue
-            bullish_bar = e9_now > e21_now and e9_now > e9_prev and e21_now > e21_prev
-            bearish_bar = e9_now < e21_now and e9_now < e9_prev and e21_now < e21_prev
-            if (direction == "CALL" and bullish_bar) or (direction == "PUT" and bearish_bar):
-                ema_persistence_count += 1
-            else:
-                ema_persistence_count = 0
-    ema_four_candle_confirmed = bool(
-        direction in ("CALL", "PUT") and ema_persistence_count == 4
-    )
-
     confidence = int(brain_score) if direction != "NEUTRO" else 0
-
-    entry_filter_passed = not bool(entry_filter_reasons) and direction in ("CALL", "PUT")
-    structure_not_opposed = market_structure.get("direction") in ("NEUTRO", direction)
-    entry_ready = bool(
-        entry_filter_passed
-        and ema_four_candle_confirmed
-        and structure_not_opposed
-    )
-
-    brain_snapshot = _quantum_brain_snapshot(
-        direction=direction,
-        trend_direction=trend_direction,
-        flow_direction=flow_direction,
-        market_structure=market_structure,
-        confirm_count=confirm_count,
-        rsi_value=rsi_value,
-        adx_value=adx_value,
-        flow=flow,
-        macd_bull=macd_bull,
-        macd_bear=macd_bear,
-        di_bull=di_bull,
-        di_bear=di_bear,
-        kdj_bull=kdj_bull,
-        kdj_bear=kdj_bear,
-        ema_direction=ema_direction,
-    )
-    quantum_brain = _apply_quantum_brain(confidence, brain_profile, brain_snapshot)
-    if direction in ("CALL", "PUT") and quantum_brain["active"]:
-        confidence = max(0, min(100, confidence + quantum_brain["confidence_adjustment"]))
 
     macd_cross_up = (
         float(macd_line.iloc[ip]) <= float(macd_signal.iloc[ip])
@@ -1086,17 +931,6 @@ def analyze_candles(
         "volatility_too_low": volatility_too_low,
         "volatility_spike": volatility_spike,
         "entry_filter_passed": not bool(entry_filter_reasons),
-        "entry_ready": entry_ready,
-        "entry_status": (
-            "CONFIRMADO_QUARTA_VELA" if entry_ready else
-            "AGUARDANDO_QUATRO_VELAS_EMA" if entry_filter_passed and not ema_four_candle_confirmed else
-            "BLOQUEADO_PELOS_FILTROS"
-        ),
-        "structure_not_opposed": bool(structure_not_opposed),
-        "ema_persistence_count": int(ema_persistence_count),
-        "ema_four_candle_confirmed": bool(ema_four_candle_confirmed),
-        "quantum_brain_active": bool(quantum_brain["active"]),
-        "quantum_brain_adjustment": int(quantum_brain["confidence_adjustment"]),
         "entry_filter_reasons": entry_filter_reasons,
         "entry_context_warnings": entry_context_warnings,
         "ema_spread_atr": round(ema_spread_atr, 3),
@@ -1169,9 +1003,5 @@ def analyze_candles(
         "direction": direction,
         "confidence": confidence,
         "price": price,
-        "entry_filter_passed": bool(entry_filter_passed),
-        "entry_ready": bool(entry_ready),
-        "brain_snapshot": brain_snapshot,
-        "quantum_brain": quantum_brain,
         "indicators": indicators,
     }
