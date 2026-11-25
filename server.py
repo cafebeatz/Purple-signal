@@ -10,8 +10,8 @@ Integração do painel Purple Signal:
 - Atualização explícita do saldo pela corretora.
 
 IMPORTANTE:
-A inicialização preserva os documentos existentes da coleção "signals".
-Nenhum histórico é apagado por esta versão.
+A inicialização preserva o histórico existente de sinais. Nenhuma rotina de
+startup deve apagar documentos da coleção "signals".
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import asyncio
+import hmac
 import logging
 import os
 import uuid
@@ -44,6 +45,7 @@ from broker import (
     SIM_PAYOUT,
     TIMEFRAME_SECONDS,
     BrokerSession,
+    market_type_for_asset,
     check_trade,
     connect_broker,
     disconnect_broker,
@@ -120,9 +122,17 @@ class BrokerConnectIn(BaseModel):
 
 
 class ScanStartIn(BaseModel):
-    timeframe: str = Field(default="M1", pattern="^(M1|M5|M15)$")
+    timeframe: str = Field(default="M1", pattern="^M1$")
     min_confidence: int = Field(default=70, ge=50, le=99)
-    auto_trade: bool = True
+    auto_trade: bool = False
+    amount: float = Field(default=2.0, ge=1, le=10000)
+    target_gain: float = Field(default=0.0, ge=0, le=100000000)
+    max_loss: float = Field(default=0.0, ge=0, le=100000000)
+
+
+class ScanConfigIn(BaseModel):
+    timeframe: str = Field(default="M1", pattern="^M1$")
+    min_confidence: int = Field(default=70, ge=50, le=99)
     amount: float = Field(default=2.0, ge=1, le=10000)
     target_gain: float = Field(default=0.0, ge=0, le=100000000)
     max_loss: float = Field(default=0.0, ge=0, le=100000000)
@@ -130,9 +140,18 @@ class ScanStartIn(BaseModel):
 
 class RobotConfigIn(BaseModel):
     auto_trade: bool = True
+    password: str = Field(min_length=1, max_length=256)
     amount: float = Field(default=2.0, ge=1, le=10000)
     target_gain: float = Field(default=0.0, ge=0, le=100000000)
     max_loss: float = Field(default=0.0, ge=0, le=100000000)
+
+
+class SignalDecisionIn(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=240)
+
+
+class SignalHistoryResetIn(BaseModel):
+    confirmation: str
 
 
 class SessionStartIn(BaseModel):
@@ -210,21 +229,6 @@ _BROKER_SESSIONS: dict[str, BrokerSession] = {}
 _SCAN_TASKS: dict[str, asyncio.Task] = {}
 _SCAN_STATE: dict[str, dict] = {}
 
-# Liquidação resiliente: tempos em segundos.
-SETTLEMENT_CHECK_TIMEOUT = 5
-SETTLEMENT_RETRY_SECONDS = 5
-SETTLEMENT_FALLBACK_AFTER = 60
-SETTLEMENT_FINAL_WAIT_MIN = 300
-_SETTLEMENT_LOCKS: dict[str, asyncio.Lock] = {}
-
-
-def _settlement_lock(user_id: str) -> asyncio.Lock:
-    lock = _SETTLEMENT_LOCKS.get(user_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _SETTLEMENT_LOCKS[user_id] = lock
-    return lock
-
 
 def _state(user_id: str) -> dict:
     state = _SCAN_STATE.get(user_id)
@@ -245,6 +249,8 @@ def _state(user_id: str) -> dict:
             "best": None,
             "ranking": [],
             "candles": {},
+            "candle_fetch_ts": {},
+            "scan_progress": {"total": 0, "fetched": 0, "analyzed": 0, "remaining": 0, "errors": 0},
             "last_signal_candle": {},
             "message": "Aguardando início do scanner",
             "session_id": new_session_id(),
@@ -320,12 +326,46 @@ def _session_out(session: BrokerSession) -> dict:
         "currency": session.currency,
         "message": session.message,
         "assets_count": len(session.assets),
+        "asset_counts": {
+            "open": len(session.market_assets.get("open", [])),
+            "otc": len(session.market_assets.get("otc", [])),
+        },
     }
 
 
 # ---------------------------------------------------------------------------
 # Sinais, ordens e liquidação
 # ---------------------------------------------------------------------------
+
+def _analyze_last_three_closed(candles: list[dict]) -> dict:
+    """Use historical closed candles for indicators and the last 3 for signal confirmation."""
+    if len(candles) < 102:
+        return {
+            "ready": False, "direction": "NEUTRO", "confidence": 0,
+            "price": float(candles[-1].get("close", 0)) if candles else 0,
+            "indicators": {},
+            "three_candle_check": {"ready": False, "required": 3, "available": min(len(candles), 3),
+                                   "reason": "São necessários ao menos 102 candles fechados para preservar o contexto da EMA 100 e avaliar os três últimos."},
+        }
+
+    # The strategy requires at least 100 valid bars for EMA100. Each prefix
+    # ends at one of the three most recent CLOSED bars; no forming candle enters.
+    analyses = [analyze_candles(candles[:end]) for end in (len(candles)-2, len(candles)-1, len(candles))]
+    directions = [str(a.get("direction", "NEUTRO")).upper() for a in analyses]
+    ready_flags = [bool(a.get("ready")) for a in analyses]
+    agreed = all(ready_flags) and directions[0] in {"CALL", "PUT"} and len(set(directions)) == 1
+    latest = dict(analyses[-1])
+    confidences = [float(a.get("confidence") or 0) for a in analyses]
+    latest["ready"] = bool(agreed)
+    latest["direction"] = directions[-1] if agreed else "NEUTRO"
+    latest["confidence"] = round(min(confidences), 2) if agreed else 0
+    latest["three_candle_check"] = {
+        "ready": bool(agreed), "required": 3, "available": 3,
+        "directions": directions, "all_ready": all(ready_flags),
+        "candle_timestamps": [int(c.get("ts", 0)) for c in candles[-3:]],
+    }
+    return latest
+
 
 def _signal_doc(
     user_id: str,
@@ -341,6 +381,7 @@ def _signal_doc(
         "session_id": state["session_id"],
         "session_started_at": state["session_started_at"],
         "asset": best["asset"],
+        "market_type": best.get("market_type") or market_type_for_asset(best["asset"]),
         "direction": best["direction"],
         "confidence": best["confidence"],
         "price": best["price"],
@@ -350,13 +391,58 @@ def _signal_doc(
         "simulated": session.simulated,
         "account_type": session.account_type,
         "indicators": best.get("indicators", {}),
+        "brain_snapshot": best.get("brain_snapshot"),
         "ts": now.isoformat(),
-        "expires_at": (now + timedelta(seconds=TIMEFRAME_SECONDS[tf])).isoformat(),
+        # O sinal automático ainda não é uma ordem. Reserva tempo para a
+        # reavaliação pré-entrada; o vencimento real é redefinido ao enviar.
+        "expires_at": (now + timedelta(
+            seconds=TIMEFRAME_SECONDS[tf] * (3 if state.get("auto_trade") else 1)
+        )).isoformat(),
         "result": "PENDENTE",
+        "approval_status": "AGUARDANDO_REAVALIACAO" if state.get("auto_trade") else "AGUARDANDO_CONFIRMACAO",
+        "entry_review": {
+            "status": "AGUARDANDO_CANDLE_1" if state.get("auto_trade") else "NAO_APLICAVEL",
+            "original_direction": best["direction"],
+            "signal_candle_ts": int(best.get("candle_ts") or 0),
+            "checked_candles": [],
+        },
         "trade": None,
         "profit": None,
         "settled_at": None,
     }
+
+
+async def _load_quantum_brain_profile(user_id: str) -> dict:
+    """Resume resultados encerrados deste usuário, sem alterar o histórico de sinais."""
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": "$pattern_key",
+            "wins": {"$sum": {"$cond": [{"$eq": ["$result", "WIN"]}, 1, 0]}},
+            "losses": {"$sum": {"$cond": [{"$eq": ["$result", "LOSS"]}, 1, 0]}},
+            "ties": {"$sum": {"$cond": [{"$eq": ["$result", "EMPATE"]}, 1, 0]}},
+        }},
+    ]
+    rows = await db.strategy_brain_events.aggregate(pipeline).to_list(length=5000)
+    return {str(row["_id"]): {"wins": int(row.get("wins", 0)), "losses": int(row.get("losses", 0)), "ties": int(row.get("ties", 0))} for row in rows if row.get("_id")}
+
+
+async def _record_quantum_brain_outcome(sig: dict, result: str) -> None:
+    """Um evento único por sinal; duplicatas não contam duas vezes."""
+    snapshot = sig.get("brain_snapshot") or {}
+    pattern_key = snapshot.get("pattern_key")
+    if not pattern_key or result not in {"WIN", "LOSS", "EMPATE"}:
+        return
+    from pymongo.errors import DuplicateKeyError
+    try:
+        await db.strategy_brain_events.insert_one({
+            "signal_id": sig["id"], "user_id": sig["user_id"],
+            "pattern_key": pattern_key, "snapshot": snapshot, "result": result,
+            "asset": sig.get("asset"), "timeframe": sig.get("timeframe"),
+            "direction": sig.get("direction"), "settled_at": iso_now(),
+        })
+    except DuplicateKeyError:
+        return
 
 
 async def _auto_trade(
@@ -364,9 +450,11 @@ async def _auto_trade(
     state: dict,
     session: BrokerSession,
     doc: dict,
+    *,
+    manual_confirmation: bool = False,
 ) -> bool:
-    """Executa ordem somente após validar conexão, pausa, risco e saldo."""
-    if not state.get("auto_trade"):
+    """Executa ordem somente após autorização manual ou modo automático autenticado."""
+    if not state.get("auto_trade") and not manual_confirmation:
         return False
     if state.get("paused"):
         state["message"] = "Robô pausado: nenhuma nova ordem será enviada."
@@ -378,6 +466,14 @@ async def _auto_trade(
     await _refresh_risk_state(user_id)
     if state.get("risk_halted"):
         state["message"] = "Ordem bloqueada pela proteção diária: " + state["risk_reason"]
+        return False
+
+    if doc.get("asset") not in session.assets:
+        state["message"] = "Ordem bloqueada: ativo não confirmado na lista da corretora."
+        return False
+    expected_market = market_type_for_asset(doc.get("asset", ""))
+    if doc.get("market_type", expected_market) != expected_market:
+        state["message"] = "Ordem bloqueada: identificação do mercado não corresponde ao ativo."
         return False
 
     amount = float(state["amount"])
@@ -403,7 +499,7 @@ async def _auto_trade(
             "profit": None,
         }
         state["message"] = (
-            f"Entrada automática enviada: {doc['asset']} "
+            f"Entrada autorizada enviada: {doc['asset']} "
             f"{doc['direction']} {session.currency} {amount:.2f}"
         )
         return True
@@ -421,308 +517,374 @@ async def _auto_trade(
         return False
 
 
-def _price_at_expiry(sig: dict, candles: list[dict], now: Optional[datetime] = None) -> Optional[float]:
-    """Retorna preço de candle FECHADO na expiração; nunca inventa preço."""
-    if not candles:
-        return None
+def _candle_direction(candle: dict) -> str:
+    """Direção do corpo de um candle fechado."""
+    opening = float(candle.get("open", 0) or 0)
+    closing = float(candle.get("close", 0) or 0)
+    if closing > opening:
+        return "CALL"
+    if closing < opening:
+        return "PUT"
+    return "NEUTRO"
 
+
+def _entry_confirmation_metrics(candles: list[dict], direction: str) -> dict:
+    """Reavalia EMAs, RSI e volume sem alterar a geração original de sinais."""
+    if len(candles) < 102:
+        return {"confirmed": False, "ema_direction": "NEUTRO", "rsi": 50.0,
+                "volume_ratio": 0.0, "volume_available": False}
+
+    analysis = analyze_candles(candles)
+    indicators = analysis.get("indicators") or {}
+    ema_direction = str(indicators.get("ema_confirmation", "NEUTRO")).upper()
+    flow_direction = str(indicators.get("flow_direction", "NEUTRO")).upper()
+    try:
+        rsi_value = float(indicators.get("rsi", 50))
+    except (TypeError, ValueError):
+        rsi_value = 50.0
+
+    recent_volumes = []
+    for candle in candles[-21:-1]:
+        try:
+            recent_volumes.append(max(0.0, float(candle.get("volume", 0) or 0)))
+        except (TypeError, ValueError):
+            recent_volumes.append(0.0)
+    try:
+        current_volume = max(0.0, float(candles[-1].get("volume", 0) or 0))
+    except (TypeError, ValueError):
+        current_volume = 0.0
+    average_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 0.0
+    volume_available = bool(indicators.get("flow_volume_available")) and average_volume > 0
+    volume_ratio = current_volume / average_volume if average_volume > 0 else 0.0
+
+    rsi_support = (rsi_value > 50) if direction == "CALL" else (rsi_value < 50)
+    momentum_support = rsi_support or flow_direction == direction
+    volume_support = (not volume_available) or volume_ratio >= 0.65
+    confirmed = ema_direction == direction and momentum_support and volume_support
+
+    return {
+        "confirmed": bool(confirmed),
+        "ema_direction": ema_direction,
+        "flow_direction": flow_direction,
+        "rsi": round(rsi_value, 2),
+        "volume_ratio": round(volume_ratio, 3),
+        "volume_available": volume_available,
+    }
+
+
+async def _process_delayed_entries(user_id: str, state: dict, session: BrokerSession) -> None:
+    """Só envia ordem automática após um candle de espera e eventual confirmação extra."""
+    waiting = await db.signals.find(
+        {
+            "user_id": user_id,
+            "session_id": state["session_id"],
+            "result": "PENDENTE",
+            "approval_status": "AGUARDANDO_REAVALIACAO",
+        },
+        {"_id": 0},
+    ).to_list(100)
+
+    tf = "M1"
+    tf_seconds = TIMEFRAME_SECONDS[tf]
+
+    for doc in waiting:
+        asset = doc.get("asset")
+        candles = state.get("candles", {}).get(asset) or []
+        if not candles:
+            continue
+
+        review = doc.get("entry_review") or {}
+        original = str(review.get("original_direction") or doc.get("direction", "NEUTRO")).upper()
+        signal_ts = int(review.get("signal_candle_ts") or doc.get("candle_ts") or 0)
+        after_signal = [c for c in candles if int(c.get("ts", 0)) > signal_ts]
+        if not after_signal:
+            continue
+
+        first = after_signal[0]
+        first_ts = int(first.get("ts", 0))
+        first_side = _candle_direction(first)
+        first_history = [c for c in candles if int(c.get("ts", 0)) <= first_ts]
+        first_metrics = _entry_confirmation_metrics(first_history, original)
+
+        chosen_direction = None
+        used_candles = [first_ts]
+        decision_reason = ""
+
+        # Um candle a favor + EMAs/momentum alinhados mantém a direção inicial.
+        if first_side == original and first_metrics["confirmed"]:
+            chosen_direction = original
+            decision_reason = "PRIMEIRO_CANDLE_CONFIRMOU_SINAL_ORIGINAL"
+        else:
+            # Candle contrário isolado nunca inverte a ordem: aguarda o seguinte.
+            second = next((c for c in after_signal[1:] if int(c.get("ts", 0)) > first_ts), None)
+            if second is None:
+                review.update({
+                    "status": "AGUARDANDO_CANDLE_2",
+                    "first_candle_ts": first_ts,
+                    "first_candle_direction": first_side,
+                    "first_candle_metrics": first_metrics,
+                })
+                await db.signals.update_one(
+                    {"id": doc["id"], "user_id": user_id, "approval_status": "AGUARDANDO_REAVALIACAO"},
+                    {"$set": {"entry_review": review}},
+                )
+                continue
+
+            second_ts = int(second.get("ts", 0))
+            second_side = _candle_direction(second)
+            second_history = [c for c in candles if int(c.get("ts", 0)) <= second_ts]
+            opposite = "PUT" if original == "CALL" else "CALL"
+            opposite_metrics = _entry_confirmation_metrics(second_history, opposite)
+            original_metrics = _entry_confirmation_metrics(second_history, original)
+            used_candles.append(second_ts)
+
+            # Inversão exige dois corpos consecutivos contra o sinal e apoio técnico.
+            if (
+                first_side == opposite
+                and second_side == opposite
+                and opposite_metrics["confirmed"]
+                and (not opposite_metrics["volume_available"] or opposite_metrics["volume_ratio"] >= 0.90)
+            ):
+                chosen_direction = opposite
+                decision_reason = "REVERSAO_CONFIRMADA_EM_DOIS_CANDLES"
+            elif second_side == original and original_metrics["confirmed"]:
+                chosen_direction = original
+                decision_reason = "SEGUNDO_CANDLE_RETORNOU_A_DIRECAO_ORIGINAL"
+            else:
+                review.update({
+                    "status": "SEM_CONFIRMACAO_TECNICA",
+                    "first_candle_ts": first_ts,
+                    "second_candle_ts": second_ts,
+                    "first_candle_direction": first_side,
+                    "second_candle_direction": second_side,
+                    "first_candle_metrics": first_metrics,
+                    "second_candle_metrics": original_metrics,
+                    "opposite_metrics": opposite_metrics,
+                })
+                await db.signals.update_one(
+                    {"id": doc["id"], "user_id": user_id, "approval_status": "AGUARDANDO_REAVALIACAO"},
+                    {"$set": {
+                        "entry_review": review,
+                        "approval_status": "REAVALIACAO_SEM_CONFIRMACAO",
+                        "result": "CANCELADO",
+                        "settled_at": iso_now(),
+                    }},
+                )
+                continue
+
+        # O automático pode ter sido desligado enquanto o candle aguardava.
+        if not state.get("auto_trade") or state.get("paused") or not session.connected:
+            await db.signals.update_one(
+                {"id": doc["id"], "user_id": user_id, "approval_status": "AGUARDANDO_REAVALIACAO"},
+                {"$set": {
+                    "approval_status": "CANCELADO_AUTOMATICO_DESATIVADO",
+                    "result": "CANCELADO",
+                    "settled_at": iso_now(),
+                }},
+            )
+            continue
+
+        latest_closed = next((c for c in reversed(candles) if int(c.get("ts", 0)) in used_candles), candles[-1])
+        review.update({
+            "status": "CONFIRMADO_PARA_ENTRADA",
+            "final_direction": chosen_direction,
+            "decision": decision_reason,
+            "checked_candles": used_candles,
+            "final_metrics": _entry_confirmation_metrics(
+                [c for c in candles if int(c.get("ts", 0)) <= int(latest_closed.get("ts", 0))],
+                chosen_direction,
+            ),
+        })
+        doc["direction"] = chosen_direction
+        doc["price"] = float(latest_closed.get("close", doc.get("price", 0)) or doc.get("price", 0))
+        doc["expires_at"] = (utc_now() + timedelta(seconds=tf_seconds)).isoformat()
+        doc["entry_review"] = review
+
+        claimed = await db.signals.update_one(
+            {"id": doc["id"], "user_id": user_id, "approval_status": "AGUARDANDO_REAVALIACAO"},
+            {"$set": {
+                "approval_status": "EXECUTANDO_REAVALIACAO",
+                "direction": doc["direction"],
+                "price": doc["price"],
+                "expires_at": doc["expires_at"],
+                "entry_review": review,
+            }},
+        )
+        if claimed.modified_count != 1:
+            continue
+
+        try:
+            sent = await _auto_trade(user_id, state, session, doc)
+        except Exception as exc:  # noqa: BLE001
+            await db.signals.update_one(
+                {"id": doc["id"], "user_id": user_id, "approval_status": "EXECUTANDO_REAVALIACAO"},
+                {"$set": {
+                    "approval_status": "FALHA",
+                    "result": "FALHA",
+                    "entry_review.error": str(exc)[:200],
+                    "settled_at": iso_now(),
+                }},
+            )
+            raise
+
+        await db.signals.update_one(
+            {"id": doc["id"], "user_id": user_id, "approval_status": "EXECUTANDO_REAVALIACAO"},
+            {"$set": {
+                "trade": doc.get("trade"),
+                "approval_status": "AUTOMATICO_ENVIADO" if sent else "FALHA",
+                "result": "PENDENTE" if sent else "FALHA",
+                "entry_review": review,
+                "expires_at": doc["expires_at"],
+                "settled_at": None if sent else iso_now(),
+            }},
+        )
+        state["message"] = (
+            f"Reavaliação concluída: {asset} {chosen_direction}. Ordem enviada."
+            if sent else
+            f"Reavaliação concluída, mas a ordem não foi enviada: {state.get('message', 'falha na validação')}"
+        )
+
+
+def _price_at_expiry(sig: dict, candles: list[dict]) -> float:
     tf = TIMEFRAME_SECONDS[sig["timeframe"]]
     exp_ts = int(parse_iso(sig["expires_at"]).timestamp())
     target_ts = exp_ts // tf * tf
-    now_ts = int((now or utc_now()).timestamp())
-
-    normalized = []
-    for candle in candles:
-        try:
-            ts = int(candle.get("ts", 0))
-            if ts <= 0 or ts + tf > now_ts:
-                continue  # candle ainda aberto
-            normalized.append((ts, candle))
-        except (TypeError, ValueError):
-            continue
-
-    normalized.sort(key=lambda item: item[0])
-    if not normalized:
-        return None
-
-    # O candle que começa na expiração representa a primeira cotação do período.
-    exact = next((c for ts, c in normalized if ts == target_ts), None)
-    if exact is not None:
-        try:
-            return float(exact["open"])
-        except (KeyError, TypeError, ValueError):
-            return None
-
-    # Fallback conservador: último candle fechado, desde que não esteja muito antigo.
-    last_ts, last = normalized[-1]
-    if last_ts > target_ts or target_ts - last_ts > tf * 2:
-        return None
-    try:
-        return float(last["close"])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-
-def _classify_candle_result(sig: dict, close_price: Optional[float]) -> str:
-    if close_price is None:
-        return "INDETERMINADO"
-    try:
-        entry = float(sig["price"])
-    except (KeyError, TypeError, ValueError):
-        return "INDETERMINADO"
-    direction = str(sig.get("direction", "")).upper()
-    tolerance = max(abs(entry) * 1e-10, 1e-12)
-    if abs(close_price - entry) <= tolerance:
-        return "EMPATE"
-    if direction == "CALL":
-        return "WIN" if close_price > entry else "LOSS"
-    if direction == "PUT":
-        return "WIN" if close_price < entry else "LOSS"
-    return "INDETERMINADO"
-
-
-async def _get_settlement_candles(
-    user_id: str, sig: dict, session: BrokerSession, now: datetime
-) -> list[dict]:
-    """Prioriza cache e consulta a corretora se o cache não contém candle útil."""
-    cached = _state(user_id).get("candles", {}).get(sig.get("asset"), []) or []
-    if _price_at_expiry(sig, cached, now) is not None:
-        return cached
-    try:
-        candles = await asyncio.wait_for(
-            get_candles(session, sig["asset"], sig["timeframe"], count=80),
-            timeout=4,
-        )
-        return candles or cached
-    except (asyncio.TimeoutError, TimeoutError, ConnectionError) as exc:
-        logger.warning("Fallback de candles temporariamente indisponível: %s", exc)
-    except Exception:
-        logger.exception("Falha ao buscar candles para liquidação")
-    return cached
+    candle = next(
+        (c for c in candles if int(c.get("ts", 0)) == target_ts),
+        None,
+    )
+    if candle:
+        return float(candle["open"])
+    return float(candles[-1]["close"]) if candles else float(sig["price"])
 
 
 async def _settle_pending(user_id: str, session: BrokerSession) -> None:
-    """Liquida pendências sem bloquear o scanner e sem confundir estimativa com resultado real."""
-    lock = _settlement_lock(user_id)
-    if lock.locked():
-        return
+    """Liquida sinais vencidos; ordens reais usam o resultado informado pela corretora."""
+    now = utc_now()
+    await db.signals.update_many(
+        {"user_id": user_id, "result": "PENDENTE", "approval_status": "AGUARDANDO_CONFIRMACAO", "expires_at": {"$lte": now.isoformat()}},
+        {"$set": {"result": "EXPIRADO", "approval_status": "EXPIRADO", "settled_at": now.isoformat()}},
+    )
+    pending = await db.signals.find(
+        {
+            "user_id": user_id,
+            "result": "PENDENTE",
+            "approval_status": {"$in": ["AUTOMATICO_ENVIADO", "CONFIRMADO", None]},
+            "expires_at": {"$lte": now.isoformat()},
+        },
+        {"_id": 0},
+    ).to_list(100)
 
-    async with lock:
-        now = utc_now()
-        pending = await db.signals.find(
-            {
-                "user_id": user_id,
-                "result": "PENDENTE",
-                "expires_at": {"$lte": now.isoformat()},
-            },
-            {"_id": 0},
-        ).to_list(100)
+    balance_changed = False
 
-        broker_balance_changed = False
+    for sig in pending:
+        trade = sig.get("trade") or {}
+        update: dict = {}
 
-        for sig in pending:
-            signal_id = sig.get("id")
-            if not signal_id:
+        if trade.get("order_id") and not sig.get("simulated"):
+            result_data = await check_trade(session, trade["order_id"])
+            if not result_data.get("done"):
                 continue
 
-            # Evita consultas repetidas a cada ciclo e persiste as tentativas no MongoDB.
-            next_check = sig.get("settlement_next_check_at")
-            if next_check:
-                try:
-                    if parse_iso(next_check) > now:
-                        continue
-                except (TypeError, ValueError):
-                    pass
-
-            trade = sig.get("trade") or {}
-            has_real_order = bool(trade.get("order_id") and not sig.get("simulated"))
-            is_simulated_order = bool(trade.get("order_id") and sig.get("simulated"))
-            update: dict = {}
-            source = None
-            result = None
-            profit = None
-            close_price = None
-
-            expires_at = parse_iso(sig["expires_at"])
-            elapsed = max(0.0, (now - expires_at).total_seconds())
-            tf_seconds = TIMEFRAME_SECONDS.get(sig.get("timeframe"), 60)
-            final_wait = max(SETTLEMENT_FINAL_WAIT_MIN, tf_seconds + 180)
-
-            if has_real_order:
-                # Primeiro tenta a fonte oficial. A chamada nunca pode prender o loop.
-                try:
-                    result_data = await asyncio.wait_for(
-                        check_trade(session, trade["order_id"]),
-                        timeout=SETTLEMENT_CHECK_TIMEOUT,
-                    )
-                except (asyncio.TimeoutError, TimeoutError, ConnectionError) as exc:
-                    result_data = None
-                    logger.warning(
-                        "Timeout/ conexão consultando ordem %s: %s",
-                        trade.get("order_id"), exc,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    result_data = None
-                    logger.warning(
-                        "Falha consultando ordem %s: %s", trade.get("order_id"), exc,
-                    )
-
-                if isinstance(result_data, dict) and result_data.get("done"):
-                    raw_win = result_data.get("win")
-                    raw = str(raw_win).strip().lower()
-                    if raw_win is True or raw in {"win", "won", "true", "1"}:
-                        result = "WIN"
-                    elif raw_win is False or raw in {"loose", "loss", "lost", "false", "0"}:
-                        result = "LOSS"
-                    else:
-                        try:
-                            reported_profit = float(result_data.get("profit"))
-                            result = "WIN" if reported_profit > 0 else (
-                                "LOSS" if reported_profit < 0 else "EMPATE"
-                            )
-                        except (TypeError, ValueError):
-                            result = "INDETERMINADO"
-
-                    try:
-                        raw_profit = result_data.get("profit")
-                        profit = float(raw_profit) if raw_profit is not None else None
-                    except (TypeError, ValueError):
-                        profit = None
-                    source = "BROKER"
-                    update = {
-                        "result": result,
-                        "settlement_source": source,
-                        "trade.status": "FECHADA",
-                        "settled_at": now.isoformat(),
-                        "settlement_next_check_at": None,
-                    }
-                    # Só registra PnL se a corretora realmente devolveu o valor.
-                    if profit is not None:
-                        update["trade.profit"] = profit
-                        update["profit"] = profit
-                    broker_balance_changed = True
-
-                elif elapsed >= SETTLEMENT_FALLBACK_AFTER:
-                    candles = await _get_settlement_candles(user_id, sig, session, now)
-                    close_price = _price_at_expiry(sig, candles, now)
-                    if close_price is not None:
-                        result = _classify_candle_result(sig, close_price)
-                        source = "CANDLE_FALLBACK"
-                        update = {
-                            "result": result,
-                            "settlement_source": source,
-                            "close_price": close_price,
-                            "trade.status": (
-                                "FECHADA_ESTIMADA" if result != "INDETERMINADO"
-                                else "INDETERMINADA"
-                            ),
-                            "settled_at": now.isoformat(),
-                            "settlement_next_check_at": None,
-                            "settlement_note": "Resultado estimado por candle; não confirmado pela corretora.",
-                        }
-                        # Deliberadamente NÃO grava profit nem altera saldo de conta real.
-                    elif elapsed >= final_wait:
-                        result = "INDETERMINADO"
-                        source = "TIMEOUT_SEM_DADOS"
-                        update = {
-                            "result": result,
-                            "settlement_source": source,
-                            "trade.status": "INDETERMINADA",
-                            "settled_at": now.isoformat(),
-                            "settlement_next_check_at": None,
-                            "settlement_note": "Corretora sem confirmação e sem candle fechado válido.",
-                        }
-                    else:
-                        attempts = int(sig.get("settlement_attempts") or 0) + 1
-                        update = {
-                            "settlement_attempts": attempts,
-                            "settlement_last_error": "Ordem ainda não confirmada; aguardando candle fechado.",
-                            "settlement_next_check_at": (now + timedelta(seconds=SETTLEMENT_RETRY_SECONDS)).isoformat(),
-                        }
-                else:
-                    attempts = int(sig.get("settlement_attempts") or 0) + 1
-                    update = {
-                        "settlement_attempts": attempts,
-                        "settlement_last_error": "Aguardando confirmação da corretora.",
-                        "settlement_next_check_at": (now + timedelta(seconds=SETTLEMENT_RETRY_SECONDS)).isoformat(),
-                    }
-
-            else:
-                # Sinal analítico ou operação simulada: candles são a fonte de resultado.
-                candles = await _get_settlement_candles(user_id, sig, session, now)
-                close_price = _price_at_expiry(sig, candles, now)
-                if close_price is not None:
-                    result = _classify_candle_result(sig, close_price)
-                    source = "CANDLE_SIMULATED" if is_simulated_order else "CANDLE_ANALYTIC"
-                    update = {
-                        "result": result,
-                        "settlement_source": source,
-                        "close_price": close_price,
-                        "settled_at": now.isoformat(),
-                        "settlement_next_check_at": None,
-                    }
-                    if is_simulated_order and result in {"WIN", "LOSS", "EMPATE"}:
-                        amount = float(trade.get("amount") or 0)
-                        sim_profit = (
-                            round(amount * float(SIM_PAYOUT), 2) if result == "WIN"
-                            else (-amount if result == "LOSS" else 0.0)
-                        )
-                        if result == "WIN":
-                            session.balance = round(
-                                float(session.balance or 0) + amount + sim_profit, 2
-                            )
-                        update.update({
-                            "trade.status": "FECHADA_SIMULADA",
-                            "trade.profit": sim_profit,
-                            "profit": sim_profit,
-                        })
-                elif elapsed >= final_wait:
-                    result = "INDETERMINADO"
-                    update = {
-                        "result": result,
-                        "settlement_source": "TIMEOUT_SEM_CANDLE",
-                        "trade.status": "INDETERMINADA" if trade else None,
-                        "settled_at": now.isoformat(),
-                        "settlement_next_check_at": None,
-                        "settlement_note": "Não foi possível obter candle fechado válido.",
-                    }
-                    if not trade:
-                        update.pop("trade.status", None)
-                else:
-                    attempts = int(sig.get("settlement_attempts") or 0) + 1
-                    update = {
-                        "settlement_attempts": attempts,
-                        "settlement_last_error": "Aguardando candle fechado válido.",
-                        "settlement_next_check_at": (now + timedelta(seconds=SETTLEMENT_RETRY_SECONDS)).isoformat(),
-                    }
-
-            if not update:
-                continue
-
-            # Compare-and-set: somente um worker pode fechar uma pendência.
-            result_update = await db.signals.update_one(
-                {"id": signal_id, "user_id": user_id, "result": "PENDENTE"},
-                {"$set": update},
+            raw_win = str(result_data.get("win", "")).lower()
+            result = {"win": "WIN", "loose": "LOSS", "loss": "LOSS"}.get(
+                raw_win,
+                "EMPATE",
             )
-            if result_update.modified_count == 1 and result in {"WIN", "LOSS", "EMPATE", "INDETERMINADO"}:
-                logger.info(
-                    "Sinal liquidado user=%s signal=%s result=%s source=%s",
-                    user_id, signal_id, result, source,
+            profit = float(result_data.get("profit") or 0)
+            update = {
+                "result": result,
+                "trade.status": "FECHADA",
+                "trade.profit": profit,
+                "profit": profit,
+                "settled_at": now.isoformat(),
+            }
+            balance_changed = True
+
+        else:
+            candles = (
+                _state(user_id)["candles"].get(sig["asset"])
+                or await get_candles(
+                    session,
+                    sig["asset"],
+                    sig["timeframe"],
+                    count=60,
+                )
+            )
+            close_price = _price_at_expiry(sig, candles)
+            direction = str(sig["direction"]).upper()
+            won = (
+                close_price > float(sig["price"])
+                if direction == "CALL"
+                else close_price < float(sig["price"])
+            )
+            result = "WIN" if won else "LOSS"
+            update = {
+                "result": result,
+                "close_price": close_price,
+                "settled_at": now.isoformat(),
+            }
+
+            if trade.get("order_id"):
+                amount = float(trade.get("amount") or 0)
+                profit = (
+                    round(amount * float(SIM_PAYOUT), 2)
+                    if won
+                    else -amount
+                )
+                if won:
+                    session.balance = round(
+                        float(session.balance or 0) + amount + profit,
+                        2,
+                    )
+                update.update(
+                    {
+                        "trade.status": "FECHADA",
+                        "trade.profit": profit,
+                        "profit": profit,
+                    }
                 )
 
-        # Só atualiza saldo real quando a corretora confirmou ao menos uma ordem.
-        if broker_balance_changed:
+        saved = await db.signals.update_one(
+            {"id": sig["id"], "user_id": user_id, "result": "PENDENTE"},
+            {"$set": update},
+        )
+        if saved.modified_count == 1:
             try:
-                await asyncio.wait_for(refresh_balance(session), timeout=8)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Falha ao atualizar saldo após liquidação confirmada: %s", exc)
+                await _record_quantum_brain_outcome(sig, result)
+            except Exception:  # noqa: BLE001
+                logger.exception("Falha ao registrar aprendizagem do sinal %s", sig.get("id"))
 
-        await _refresh_risk_state(user_id)
+    if balance_changed:
+        await refresh_balance(session)
+
+    await _refresh_risk_state(user_id)
 
 
 # ---------------------------------------------------------------------------
 # Loop do scanner
 # ---------------------------------------------------------------------------
+
+def _merge_candles(existing: list[dict], incoming: list[dict], limit: int = 120) -> list[dict]:
+    """Merge OHLCV por timestamp, sem duplicatas, em ordem cronológica."""
+    by_ts: dict[int, dict] = {}
+    for candle in list(existing or []) + list(incoming or []):
+        try:
+            ts = int(candle.get("ts", 0))
+            if ts > 0:
+                by_ts[ts] = dict(candle)
+        except (TypeError, ValueError):
+            continue
+    return [by_ts[ts] for ts in sorted(by_ts)[-limit:]]
+
+
+def _incremental_candle_count(last_fetch_ts: float | None, timeframe_seconds: int) -> int:
+    """5 candles mínimo; amplia o overlap conforme o tempo desde a última leitura."""
+    if not last_fetch_ts:
+        return 120
+    elapsed = max(0.0, utc_now().timestamp() - float(last_fetch_ts))
+    return min(120, max(5, int(elapsed // timeframe_seconds) + 3))
+
 
 async def _scan_loop(user_id: str) -> None:
     state = _state(user_id)
@@ -753,47 +915,111 @@ async def _scan_loop(user_id: str) -> None:
                 await asyncio.sleep(1.0)
                 continue
 
-            tf = state["timeframe"]
-            all_candles = await get_candles_many(
-                session,
-                session.assets,
-                tf,
-                count=120,
-            )
-            tf_seconds = TIMEFRAME_SECONDS[tf]
+            tf = "M1"
+            state["timeframe"] = "M1"
+            tf_seconds = TIMEFRAME_SECONDS["M1"]
             now_ts = int(utc_now().timestamp())
+            assets = list(session.assets)
+            progress = {
+                "total": len(assets), "fetched": 0, "analyzed": 0,
+                "remaining": len(assets), "errors": 0,
+            }
+            state["scan_progress"] = dict(progress)
 
-            results = []
-            closed_candles = {}
+            ranking_results = []
+            signal_results = []
+            candle_cache = state.setdefault("candles", {})
+            fetch_times = state.setdefault("candle_fetch_ts", {})
+            brain_profile = await _load_quantum_brain_profile(user_id)
 
-            for asset, candles in all_candles.items():
-                closed = [
-                    c for c in candles
-                    if int(c.get("ts", 0)) + tf_seconds <= now_ts
-                ]
-                if not closed:
-                    continue
+            # Worker isolado: comandos por lote, mantendo as chamadas IQ sequenciais.
+            batch_size = 10
+            for batch_start in range(0, len(assets), batch_size):
+                batch = assets[batch_start:batch_start + batch_size]
+                counts = {
+                    asset: _incremental_candle_count(fetch_times.get(asset), tf_seconds)
+                    for asset in batch
+                }
+                request_count = max(counts.values(), default=5)
+                try:
+                    batch_data = await get_candles_many(
+                        session, batch, tf, count=request_count
+                    )
+                except (ConnectionError, TimeoutError):
+                    raise
+                except Exception as batch_exc:  # noqa: BLE001
+                    logger.warning("Falha no lote de candles: %s", batch_exc)
+                    batch_data = {}
+                fetched_at = utc_now().timestamp()
+                progress["fetched"] += len(batch)
 
-                closed_candles[asset] = closed
-                analysis = analyze_candles(closed)
+                for asset in batch:
+                    incoming = batch_data.get(asset) or []
+                    if not incoming:
+                        progress["errors"] += 1
+                    else:
+                        fetch_times[asset] = fetched_at
+                        incoming_closed = [
+                            c for c in incoming
+                            if int(c.get("ts", 0)) + tf_seconds <= now_ts
+                        ]
+                        candle_cache[asset] = _merge_candles(
+                            candle_cache.get(asset, []), incoming_closed, 120
+                        )
 
-                if analysis.get("ready") and analysis.get("direction") != "NEUTRO":
-                    results.append(
-                        {
+                    closed = candle_cache.get(asset, [])
+                    if closed:
+                        analysis = _analyze_last_three_closed(closed)
+                        direction = str(analysis.get("direction", "NEUTRO")).upper()
+                        is_ready = bool(analysis.get("ready"))
+                        is_confirmed = is_ready and direction in {"CALL", "PUT"}
+                        item = {
                             "asset": asset,
+                            "market_type": market_type_for_asset(asset),
+                            "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
                             "candle_ts": int(closed[-1]["ts"]),
+                            "confirmation_candle_timestamps": [int(c.get("ts", 0)) for c in closed[-3:]],
+                            "signal_ready": is_confirmed,
+                            "status": (
+                                "CONFIRMADO" if is_confirmed
+                                else "AGUARDANDO_CONFIRMACAO" if is_ready
+                                else "AGUARDANDO_DADOS"
+                            ),
                             **analysis,
                         }
-                    )
+                        ranking_results.append(item)
+                        if is_confirmed:
+                            signal_results.append(item)
 
-            state["candles"] = closed_candles
-            results.sort(
+                    progress["analyzed"] += 1
+                    progress["remaining"] = max(0, progress["total"] - progress["analyzed"])
+                    state["scan_progress"] = dict(progress)
+
+            state["candles"] = candle_cache
+            ranking_results.sort(
+                key=lambda item: (
+                    bool(item.get("signal_ready")),
+                    float(item.get("confidence") or 0),
+                    int(item.get("candle_ts") or 0),
+                ),
+                reverse=True,
+            )
+            signal_results.sort(
                 key=lambda item: float(item.get("confidence") or 0),
                 reverse=True,
             )
-            state["ranking"] = results[:10]
+            # Todos os ativos analisados ficam disponíveis no ranking.
+            state["ranking"] = sorted(
+                ranking_results,
+                key=lambda item: (
+                    bool(item.get("signal_ready")),
+                    float(item.get("confidence") or 0),
+                    int(item.get("candle_ts") or 0),
+                ),
+                reverse=True,
+            )
             state["last_scan_ts"] = iso_now()
-            state["best"] = results[0] if results else None
+            state["best"] = signal_results[0] if signal_results else None
 
             best = state["best"]
             if best and float(best.get("confidence") or 0) >= state["min_confidence"]:
@@ -812,20 +1038,26 @@ async def _scan_loop(user_id: str) -> None:
                     doc = _signal_doc(user_id, best, tf, session, state)
                     state["last_signal_candle"][best["asset"]] = best["candle_ts"]
 
-                    if state["auto_trade"]:
-                        await _auto_trade(user_id, state, session, doc)
-
+                    # No automático, a ordem fica em espera até a reavaliação
+                    # de um candle fechado (e um segundo se o primeiro contrariar).
                     await db.signals.insert_one(doc)
                     state["message"] = (
                         f"Vela {tf} fechada — sinal: {best['asset']} "
                         f"{best['direction']} ({best['confidence']}%)"
                     )
 
-            elif not results:
-                state["message"] = "Analisando mercado..."
+            elif not signal_results:
+                state["message"] = (
+                    f"Scanner analisando {len(ranking_results)} ativo(s) "
+                    f"(Mercado Aberto: {len(session.market_assets.get('open', []))}; "
+                    f"OTC: {len(session.market_assets.get('otc', []))}); "
+                    "aguardando confirmação técnica para gerar sinais."
+                    if ranking_results else "Aguardando candles confirmados da corretora..."
+                )
 
+            await _process_delayed_entries(user_id, state, session)
             await _settle_pending(user_id, session)
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(1.0)
 
         except asyncio.CancelledError:
             raise
@@ -873,12 +1105,23 @@ async def _start_scan_with_config(
     target_gain: float,
     max_loss: float,
     new_session: bool,
+    auto_authorized: bool = False,
 ) -> dict:
+    if timeframe != "M1":
+        raise HTTPException(status_code=422, detail="O Purple Signal opera exclusivamente no timeframe M1.")
+    if auto_trade and not auto_authorized:
+        raise HTTPException(status_code=403, detail="Modo automático exige autorização por senha no servidor.")
     session = _BROKER_SESSIONS.get(user_id)
     if not session or not session.connected:
         raise HTTPException(
             status_code=400,
             detail="Conecte uma corretora antes de iniciar o scanner",
+        )
+
+    if not session.assets:
+        raise HTTPException(
+            status_code=409,
+            detail="A corretora conectou, mas não confirmou ativos de Mercado Aberto nem OTC. Atualize a conexão; nenhuma lista fictícia será usada.",
         )
 
     if auto_trade and amount > float(session.balance or 0):
@@ -1108,16 +1351,32 @@ async def broker_refresh_balance(user=Depends(get_current_user)):
 # Rotas do scanner
 # ---------------------------------------------------------------------------
 
+@api.put("/scan/config")
+async def scan_config(payload: ScanConfigIn, user=Depends(get_current_user)):
+    state = _state(user["id"])
+    state.update({
+        "timeframe": "M1",
+        "min_confidence": payload.min_confidence,
+        "amount": payload.amount,
+        "target_gain": payload.target_gain,
+        "max_loss": payload.max_loss,
+    })
+    await _refresh_risk_state(user["id"])
+    return {"ok": True, "message": "Configurações salvas no servidor."}
+
+
 @api.post("/scan/start")
 async def scan_start(
     payload: ScanStartIn,
     user=Depends(get_current_user),
 ):
+    if payload.auto_trade:
+        raise HTTPException(status_code=403, detail="Use /robot/start com a senha geral para habilitar o modo automático.")
     return await _start_scan_with_config(
         user["id"],
-        timeframe=payload.timeframe,
+        timeframe="M1",
         min_confidence=payload.min_confidence,
-        auto_trade=payload.auto_trade,
+        auto_trade=False,
         amount=payload.amount,
         target_gain=payload.target_gain,
         max_loss=payload.max_loss,
@@ -1143,8 +1402,9 @@ async def scan_state(user=Depends(get_current_user)):
     user_id = user["id"]
     state = await _refresh_risk_state(user_id)
 
-    tf = state["timeframe"]
-    tf_seconds = TIMEFRAME_SECONDS[tf]
+    tf = "M1"
+    state["timeframe"] = "M1"
+    tf_seconds = TIMEFRAME_SECONDS["M1"]
     now_ts = int(utc_now().timestamp())
     candle_close_ts = (now_ts // tf_seconds + 1) * tf_seconds
 
@@ -1155,8 +1415,13 @@ async def scan_state(user=Depends(get_current_user)):
     wins = await db.signals.count_documents({**session_query, "result": "WIN"})
     losses = await db.signals.count_documents({**session_query, "result": "LOSS"})
     pending = await db.signals.count_documents({**session_query, "result": "PENDENTE"})
-    indeterminate = await db.signals.count_documents({**session_query, "result": "INDETERMINADO"})
     total = wins + losses
+
+    session = _BROKER_SESSIONS.get(user_id)
+    asset_counts = {
+        "open": len(session.market_assets.get("open", [])) if session else 0,
+        "otc": len(session.market_assets.get("otc", [])) if session else 0,
+    }
 
     return {
         "running": state["running"],
@@ -1164,6 +1429,7 @@ async def scan_state(user=Depends(get_current_user)):
         "timeframe": tf,
         "min_confidence": state["min_confidence"],
         "auto_trade": state["auto_trade"],
+        "auto_trade_password_configured": bool(os.environ.get("AUTO_TRADE_PASSWORD")),
         "amount": state["amount"],
         "target_gain": state["target_gain"],
         "max_loss": state["max_loss"],
@@ -1172,6 +1438,8 @@ async def scan_state(user=Depends(get_current_user)):
         "server_time": now_ts,
         "best": state["best"],
         "ranking": state["ranking"],
+        "scan_progress": state.get("scan_progress", {}),
+        "asset_counts": asset_counts,
         "message": state["message"],
         "daily_profit": state["daily_profit"],
         "risk_halted": state["risk_halted"],
@@ -1183,7 +1451,6 @@ async def scan_state(user=Depends(get_current_user)):
             "wins": wins,
             "losses": losses,
             "pending": pending,
-            "indeterminate": indeterminate,
             "total": total,
             "winrate": round(wins * 100 / total, 1) if total else 0,
         },
@@ -1196,37 +1463,29 @@ async def scan_state(user=Depends(get_current_user)):
 
 @api.post("/robot/start")
 async def robot_start(
-    payload: Optional[RobotConfigIn] = None,
+    payload: RobotConfigIn,
     user=Depends(get_current_user),
 ):
     user_id = user["id"]
-    state = _state(user_id)
-    config = payload or RobotConfigIn(
-        auto_trade=True,
-        amount=state["amount"],
-        target_gain=state["target_gain"],
-        max_loss=state["max_loss"],
-    )
+    configured_password = os.environ.get("AUTO_TRADE_PASSWORD", "")
+    if not configured_password:
+        raise HTTPException(status_code=503, detail="Senha geral do modo automático não foi configurada no servidor.")
+    if not hmac.compare_digest(payload.password, configured_password):
+        raise HTTPException(status_code=401, detail="Senha geral do modo automático inválida.")
 
+    state = _state(user_id)
     if state["running"]:
         if state.get("risk_halted"):
-            raise HTTPException(
-                status_code=423,
-                detail="Robô bloqueado pela proteção diária: " + state["risk_reason"],
-            )
-        state["auto_trade"] = True
-        state["paused"] = False
-        return {"ok": True, "message": "Robô automático ativado", "running": True}
+            raise HTTPException(status_code=423, detail="Robô bloqueado pela proteção diária: " + state["risk_reason"])
+        state.update({"auto_trade": True, "paused": False, "amount": payload.amount,
+                      "target_gain": payload.target_gain, "max_loss": payload.max_loss,
+                      "timeframe": "M1"})
+        return {"ok": True, "message": "Robô automático autorizado e ativado", "running": True}
 
     return await _start_scan_with_config(
-        user_id,
-        timeframe=state["timeframe"],
-        min_confidence=state["min_confidence"],
-        auto_trade=True,
-        amount=config.amount,
-        target_gain=config.target_gain,
-        max_loss=config.max_loss,
-        new_session=True,
+        user_id, timeframe="M1", min_confidence=state["min_confidence"],
+        auto_trade=True, amount=payload.amount, target_gain=payload.target_gain,
+        max_loss=payload.max_loss, new_session=True, auto_authorized=True,
     )
 
 
@@ -1316,12 +1575,71 @@ def _history_stats(items: list[dict]) -> dict:
         "wins": wins,
         "losses": losses,
         "pending": sum(1 for item in items if item.get("result") == "PENDENTE"),
-        "ties": sum(1 for item in items if item.get("result") == "EMPATE"),
-        "indeterminate": sum(1 for item in items if item.get("result") == "INDETERMINADO"),
         "total": total,
         "winrate": round(wins * 100 / total, 1) if total else 0,
         "profit": round(profit, 2),
     }
+
+
+@api.post("/signals/{signal_id}/confirm")
+async def confirm_signal(signal_id: str, user=Depends(get_current_user)):
+    user_id = user["id"]
+    state = _state(user_id)
+    session = _BROKER_SESSIONS.get(user_id)
+    if not session or not session.connected:
+        raise HTTPException(status_code=400, detail="Conecte a corretora antes de confirmar o sinal.")
+    if state.get("paused"):
+        raise HTTPException(status_code=409, detail="Scanner pausado; confirmação bloqueada.")
+
+    claimed = await db.signals.update_one(
+        {"id": signal_id, "user_id": user_id, "result": "PENDENTE", "approval_status": "AGUARDANDO_CONFIRMACAO", "expires_at": {"$gt": iso_now()}},
+        {"$set": {"approval_status": "EXECUTANDO", "approved_at": iso_now()}},
+    )
+    if claimed.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Sinal não está mais aguardando confirmação ou já foi processado.")
+
+    doc = await db.signals.find_one({"id": signal_id, "user_id": user_id}, {"_id": 0})
+    executed = await _auto_trade(user_id, state, session, doc, manual_confirmation=True)
+    trade = doc.get("trade") or {"status": "BLOQUEADA", "order_id": None}
+    approval_status = "CONFIRMADO" if executed and trade.get("order_id") else "FALHA"
+    await db.signals.update_one(
+        {"id": signal_id, "user_id": user_id, "approval_status": "EXECUTANDO"},
+        {"$set": {"trade": trade, "approval_status": approval_status,
+                  "result": "PENDENTE" if approval_status == "CONFIRMADO" else "FALHA",
+                  "approved_at": iso_now()}},
+    )
+    if not executed:
+        raise HTTPException(status_code=409, detail=state.get("message", "A ordem não foi enviada."))
+    return {"ok": True, "approval_status": approval_status, "trade": trade, "message": "Confirmação registrada e ordem enviada."}
+
+
+@api.post("/signals/{signal_id}/reject")
+async def reject_signal(signal_id: str, payload: Optional[SignalDecisionIn] = None, user=Depends(get_current_user)):
+    saved = await db.signals.update_one(
+        {"id": signal_id, "user_id": user["id"], "result": "PENDENTE", "approval_status": "AGUARDANDO_CONFIRMACAO"},
+        {"$set": {"result": "REJEITADO", "approval_status": "REJEITADO",
+                  "rejected_at": iso_now(), "rejection_reason": payload.reason if payload else None}},
+    )
+    if saved.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Sinal não está mais aguardando confirmação.")
+    return {"ok": True, "approval_status": "REJEITADO", "message": "Sinal rejeitado; nenhuma ordem foi enviada."}
+
+
+@api.post("/signals/reset-study")
+async def reset_signal_study(payload: SignalHistoryResetIn, user=Depends(get_current_user)):
+    if payload.confirmation != "ZERAR HISTORICO DE SINAIS":
+        raise HTTPException(status_code=400, detail="Confirmação inválida.")
+    user_id = user["id"]
+    # Remove somente os registros de estudo do usuário atual; usuários, sessões
+    # da corretora, configurações e código permanecem intactos. Nunca roda no startup.
+    deleted_signals = await db.signals.delete_many({"user_id": user_id})
+    deleted_brain = await db.strategy_brain_events.delete_many({"user_id": user_id})
+    state = _state(user_id)
+    _start_new_session(state, "Novo estudo iniciado: histórico antigo de sinais zerado")
+    return {"ok": True, "deleted_signals": deleted_signals.deleted_count,
+            "deleted_learning_events": deleted_brain.deleted_count,
+            "session_id": state["session_id"],
+            "message": "Histórico antigo do usuário removido; novo estudo iniciado."}
 
 
 @api.get("/signals/history")
@@ -1409,7 +1727,7 @@ async def signals_archive(
 
     if result:
         normalized = result.upper()
-        if normalized not in {"WIN", "LOSS", "PENDENTE", "EMPATE", "INDETERMINADO"}:
+        if normalized not in {"WIN", "LOSS", "PENDENTE", "EMPATE"}:
             raise HTTPException(status_code=400, detail="Filtro de resultado inválido")
         query["result"] = normalized
 
@@ -1476,14 +1794,55 @@ async def clear_current_session_history(user=Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @api.get("/chart")
-async def chart(asset: str, user=Depends(get_current_user)):
+async def chart(
+    asset: str,
+    market_type: Optional[str] = Query(default=None, pattern="^(open|otc)$"),
+    user=Depends(get_current_user),
+):
     state = _state(user["id"])
-    candles = state["candles"].get(asset)
+    requested_asset = str(asset or "").strip()
+    actual_market = market_type_for_asset(requested_asset)
+    if market_type and market_type != actual_market:
+        raise HTTPException(status_code=400, detail="O tipo de mercado informado não corresponde ao ativo selecionado.")
+
+    session = _BROKER_SESSIONS.get(user["id"])
+    if session and session.connected and requested_asset not in session.assets:
+        raise HTTPException(status_code=404, detail="Ativo não confirmado na lista atual da corretora.")
+    candles = state["candles"].get(requested_asset)
+
+    # Tenta localizar a chave sem depender de maiúsculas/minúsculas.
+    if not candles:
+        matched_key = next(
+            (key for key in state["candles"] if str(key).casefold() == requested_asset.casefold()),
+            None,
+        )
+        if matched_key is not None:
+            candles = state["candles"].get(matched_key)
+
+    # Se o ativo não estiver no cache atual, consulta a corretora diretamente.
+    if not candles:
+        session = _BROKER_SESSIONS.get(user["id"])
+        if session and session.connected:
+            try:
+                fetched = await get_candles(
+                    session, requested_asset, "M1", count=120
+                )
+                tf_seconds = TIMEFRAME_SECONDS["M1"]
+                now_ts = int(utc_now().timestamp())
+                candles = [
+                    c for c in (fetched or [])
+                    if int(c.get("ts", 0)) + tf_seconds <= now_ts
+                ]
+                if candles:
+                    state["candles"][requested_asset] = candles
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Falha ao recuperar candles do gráfico %s: %s", requested_asset, exc)
+                candles = []
 
     if not candles:
         raise HTTPException(
             status_code=404,
-            detail="Sem dados para este ativo ainda",
+            detail=f"Sem candles fechados disponíveis para {requested_asset} no timeframe M1",
         )
 
     close = pd.Series([c["close"] for c in candles])
@@ -1495,7 +1854,9 @@ async def chart(asset: str, user=Depends(get_current_user)):
 
     return {
         "asset": asset,
-        "timeframe": state["timeframe"],
+        "market_type": actual_market,
+        "market_label": "OTC" if actual_market == "otc" else "Mercado Aberto",
+        "timeframe": "M1",
         "candles": out,
         "ma9": [
             {"ts": c["ts"], "value": float(ma9.iloc[offset + i])}
@@ -1564,18 +1925,11 @@ INDEXES: dict[str, list[IndexModel]] = {
             name="archive_filters",
         ),
     ],
+    "strategy_brain_events": [
+        IndexModel([("signal_id", ASCENDING)], unique=True, name="brain_signal_unique"),
+        IndexModel([("user_id", ASCENDING), ("pattern_key", ASCENDING)], name="brain_user_pattern"),
+    ],
 }
-
-
-async def clear_legacy_signals_once() -> None:
-    """Compatibilidade com startup antigo: preserva integralmente o histórico."""
-    marker_id = "purple_signal_history_preserved_v2"
-    await db.app_meta.update_one(
-        {"_id": marker_id},
-        {"$setOnInsert": {"completed": True, "completed_at": iso_now(), "deleted_count": 0}},
-        upsert=True,
-    )
-    logger.info("Migração de histórico: nenhum sinal foi apagado.")
 
 
 async def seed_admin() -> None:
@@ -1599,6 +1953,11 @@ async def seed_admin() -> None:
     logger.info("Admin seed criado: %s", email)
 
 
+async def clear_legacy_signals_once() -> None:
+    """Compatibilidade com o startup antigo; preserva integralmente o histórico."""
+    logger.info("Migração de histórico ignorada: sinais existentes foram preservados.")
+
+
 @app.on_event("startup")
 async def startup() -> None:
     for collection, models in INDEXES.items():
@@ -1606,7 +1965,7 @@ async def startup() -> None:
             with suppress(Exception):
                 await db[collection].create_indexes([model])
 
-    # Migração não destrutiva: preserva todo o histórico existente.
+    # Mantém compatibilidade com a inicialização sem apagar o histórico.
     await clear_legacy_signals_once()
     await seed_admin()
 
