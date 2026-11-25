@@ -697,8 +697,8 @@ def analyze_candles(candles: list[dict]) -> dict:
         pullback_data["detected"]
         and pullback_data["direction"] in ("CALL", "PUT")
         and (
-            (pullback_data["direction"] == "CALL" and ema100_bull and not ema_bear)
-            or (pullback_data["direction"] == "PUT" and ema100_bear and not ema_bull)
+            (pullback_data["direction"] == "CALL" and ma9_value > ma21_value and not ma9_value < ma21_value)
+            or (pullback_data["direction"] == "PUT" and ma9_value > ma21_value and not ma9_value > ma21_value)
         )
     )
     if pullback_supports_trend and direction == "NEUTRO":
