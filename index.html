@@ -1,544 +1,2426 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Purple Signal — Trading Intelligence</title>
+  <title>Purple Signal — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+
   <style>
-    :root{color-scheme:dark;--bg:#10071b;--panel:#1a1028;--line:#493064;--muted:#b8a8ca;--cyan:#d8a7ff;--green:#34d399;--red:#fb7185;--gold:#fbbf24}
-    *{box-sizing:border-box} body{margin:0;background:radial-gradient(ellipse at 50% -15%,#54217b 0,transparent 48%),linear-gradient(145deg,#10071b,#160d24 55%,#0b0712);color:#f4eaff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-    .panel{background:linear-gradient(145deg,rgba(39,22,58,.96),rgba(20,12,32,.97));border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0007}
-    .muted{color:var(--muted)} .field{width:100%;background:#080e18;border:1px solid #2a3950;border-radius:9px;padding:10px 12px;color:#e5edf8;outline:none}
-    .field:focus{border-color:#c084fc;box-shadow:0 0 0 2px #a855f733} .btn{border-radius:9px;padding:10px 14px;font-weight:700;transition:.15s}
-    .btn-primary{background:linear-gradient(100deg,#8b35c9,#c04dff);color:#fff;box-shadow:0 0 18px #a33de344}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
-    .btn-secondary{background:#1b293b;border:1px solid #33445c;color:#dce8f8}.btn-danger{background:#4a1f2a;border:1px solid #713344;color:#fecdd3}
-    .pill{border:1px solid #33445c;background:#111c2b;border-radius:999px;padding:4px 9px;font-size:11px}
-    .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.ok{background:#34d399;box-shadow:0 0 10px #34d39988}.dot.bad{background:#fb7185}
-    .signal-call{color:#34d399}.signal-put{color:#fb7185}.signal-neutral{color:#fbbf24}
-    .row-hover:hover{background:#172438}.hidden{display:none!important}
-    .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{padding:10px 12px;border-bottom:1px solid #253247;text-align:left;font-size:12px} th{color:#91a3bb;font-weight:600}
-    .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
-    input[type=range]{accent-color:#c084fc}
-    .brand-mark{background:linear-gradient(135deg,#6d28a8,#c026d3)!important;color:white!important;border-color:#d8b4fe!important;box-shadow:0 0 24px #a855f755}
-    .tabbar{display:flex;gap:8px;overflow-x:auto;padding:8px 2px 14px;scrollbar-width:thin}
-    .tab-button{flex:0 0 auto;border:1px solid #64427d;background:#211331;color:#d9c5ec;border-radius:12px;padding:11px 15px;font-size:13px;font-weight:750;transition:.18s}
-    .tab-button:hover{border-color:#d8a7ff;background:#352047}.tab-button.active{color:#fff;border-color:#e0b3ff;background:linear-gradient(120deg,#7025a4,#a333c8);box-shadow:0 0 22px #a855f755}
-    .tab-page{display:none;min-height:55vh;border-radius:18px;padding:clamp(10px,2vw,18px);border:1px solid #65447d;background:linear-gradient(145deg,#28143b99,#120b1dcc)}
-    .tab-page.active{display:block}.tab-page[data-theme="main"]{background:linear-gradient(145deg,#29133d,#120b1d)}.tab-page[data-theme="auto"]{background:linear-gradient(145deg,#20103b,#100b20)}.tab-page[data-theme="manage"]{background:linear-gradient(145deg,#351044,#160b20)}.tab-page[data-theme="calendar"]{background:linear-gradient(145deg,#28104b,#110b20)}.tab-page[data-theme="insights"]{background:linear-gradient(145deg,#321044,#150b20)}.tab-page[data-theme="indicators"]{background:linear-gradient(145deg,#21134a,#100b20)}.tab-page[data-theme="archive"]{background:linear-gradient(145deg,#35123e,#140b20)}
-    .section-heading{font-size:19px;font-weight:850;letter-spacing:-.02em;margin:2px 0 14px}.subtabs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}.subtab{border:1px solid #8054a0;background:#241333;color:#e9d5ff;padding:8px 12px;border-radius:9px;font-size:12px;font-weight:700}.subtab.active{background:#8b35c9;color:white}
-    .placeholder-card{border:1px dashed #8054a0;background:#160d22aa;border-radius:14px;padding:18px;color:#d7c3e8}
-    @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}.tab-button{padding:10px 12px}}
-    @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
+    :root {
+      color-scheme: dark;
+      --bg: #090612;
+      --panel: #151022;
+      --line: #392957;
+      --muted: #a69ab9;
+      --cyan: #bd91ff;
+      --green: #34d399;
+      --red: #fb7185;
+      --gold: #fbbf24;
+      --purple: #a855f7;
+      --violet: #c084fc;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(
+          ellipse at 50% -15%,
+          rgba(126, 34, 206, .30) 0%,
+          transparent 48%
+        ),
+        radial-gradient(
+          ellipse at 100% 100%,
+          rgba(88, 28, 135, .16),
+          transparent 45%
+        ),
+        linear-gradient(
+          145deg,
+          #090612,
+          #100b1d 55%,
+          #080611
+        );
+      color: #eee8fa;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+
+    .panel {
+      background:
+        linear-gradient(
+          145deg,
+          rgba(27, 19, 43, .97),
+          rgba(14, 11, 25, .98)
+        );
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow:
+        0 12px 35px #0007,
+        0 0 18px rgba(139, 92, 246, .06);
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .field {
+      width: 100%;
+      background: #0c0817;
+      border: 1px solid #453263;
+      border-radius: 9px;
+      padding: 10px 12px;
+      color: #eee8fa;
+      outline: none;
+      transition: .2s;
+    }
+
+    .field:focus {
+      border-color: #a855f7;
+      box-shadow: 0 0 0 2px rgba(168, 85, 247, .16);
+    }
+
+    .btn {
+      border-radius: 9px;
+      padding: 10px 14px;
+      font-weight: 700;
+      transition: .18s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(100deg, #7e22ce, #a855f7 55%, #c084fc);
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(147, 51, 234, .22);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      filter: brightness(1.13);
+      box-shadow: 0 0 18px rgba(168, 85, 247, .35);
+    }
+
+    .btn-primary:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #211832;
+      border: 1px solid #493464;
+      color: #e8dcfa;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #302044;
+      border-color: #8155ad;
+    }
+
+    .btn-danger {
+      background: #4a1f2a;
+      border: 1px solid #713344;
+      color: #fecdd3;
+    }
+
+    .pill {
+      border: 1px solid #493464;
+      background: #1b132b;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 11px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      background: #64748b;
+    }
+
+    .dot.ok {
+      background: #34d399;
+      box-shadow: 0 0 10px #34d39988;
+    }
+
+    .dot.bad {
+      background: #fb7185;
+    }
+
+    .signal-call {
+      color: #34d399;
+    }
+
+    .signal-put {
+      color: #fb7185;
+    }
+
+    .signal-neutral {
+      color: #fbbf24;
+    }
+
+    .row-hover:hover {
+      background: rgba(126, 34, 206, .14);
+      border-color: #8052a8;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .table-wrap {
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      white-space: nowrap;
+    }
+
+    th,
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #352747;
+      text-align: left;
+      font-size: 12px;
+    }
+
+    th {
+      color: #c0acd9;
+      font-weight: 600;
+    }
+
+    .skeleton {
+      color: #9586aa;
+      font-style: italic;
+    }
+
+    .metric {
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type=range] {
+      accent-color: #a855f7;
+    }
+
+    /* Elementos originalmente cianos agora em violeta */
+    .text-cyan-300,
+    .text-cyan-200 {
+      color: #c084fc !important;
+    }
+
+    [class~="bg-cyan-400/10"],
+    [class~="bg-cyan-500/10"] {
+      background-color: rgba(168, 85, 247, .12) !important;
+    }
+
+    [class~="border-cyan-300/30"],
+    [class~="border-cyan-500/40"] {
+      border-color: rgba(192, 132, 252, .42) !important;
+    }
+
+    [class~="bg-slate-950/60"],
+    [class~="bg-slate-950/50"] {
+      background-color: rgba(12, 8, 23, .72) !important;
+    }
+
+    [class~="border-slate-700"],
+    [class~="border-slate-700/70"] {
+      border-color: #392957 !important;
+    }
+
+    ::selection {
+      background: #7e22ce;
+      color: #fff;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr !important;
+      }
+
+      .header-wrap {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
   </style>
 </head>
+
 <body>
+
   <section id="auth-panel" class="min-h-screen flex items-center justify-center p-4">
     <div class="panel p-6 w-full max-w-md">
-      <div class="text-xl font-black mb-1">PURPLE <span class="text-cyan-300">SIGNAL</span></div>
-      <p class="muted text-sm mb-5">Entre na sua conta do Purple Signal.</p>
+
+      <div class="text-xl font-black mb-1">
+        PURPLE <span class="text-cyan-300">SIGNAL</span>
+      </div>
+
+      <p class="muted text-sm mb-5">
+        Entre na sua conta do Purple Signal.
+      </p>
+
       <form id="auth-form" class="space-y-3">
-        <div id="auth-name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" maxlength="80"></div>
-        <div><label class="text-xs muted">E-mail</label><input id="auth-email" class="field mt-1" type="email" required autocomplete="username"></div>
-        <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required minlength="6" autocomplete="current-password"></div>
-        <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
+
+        <div id="auth-name-wrap" class="hidden">
+          <label class="text-xs muted">Nome</label>
+          <input id="auth-name" class="field mt-1" maxlength="80">
+        </div>
+
+        <div>
+          <label class="text-xs muted">E-mail</label>
+          <input
+            id="auth-email"
+            class="field mt-1"
+            type="email"
+            required
+            autocomplete="username"
+          >
+        </div>
+
+        <div>
+          <label class="text-xs muted">Senha</label>
+          <input
+            id="auth-password"
+            class="field mt-1"
+            type="password"
+            required
+            minlength="6"
+            autocomplete="current-password"
+          >
+        </div>
+
+        <button
+          id="auth-submit"
+          class="btn btn-primary w-full"
+          type="submit"
+        >
+          Entrar
+        </button>
+
       </form>
-      <button id="auth-toggle" class="text-cyan-300 text-sm mt-4" type="button">Criar uma conta</button>
-      <p id="auth-message" class="text-xs muted mt-3" aria-live="polite"></p>
+
+      <button
+        id="auth-toggle"
+        class="text-cyan-300 text-sm mt-4"
+        type="button"
+      >
+        Criar uma conta
+      </button>
+
+      <p
+        id="auth-message"
+        class="text-xs muted mt-3"
+        aria-live="polite"
+      ></p>
+
     </div>
   </section>
+
   <main id="dashboard" class="min-h-screen p-3 md:p-5 hidden">
+
     <header class="header-wrap flex justify-between gap-4 mb-5">
+
       <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+
+        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300">
+          <i data-lucide="activity"></i>
+        </div>
+
+        <div>
+          <h1 class="text-xl md:text-2xl font-black">
+            PURPLE <span class="text-cyan-300">SIGNAL</span>
+          </h1>
+          <div class="text-xs muted">
+            Dados fornecidos pela API da aplicação
+          </div>
+        </div>
+
       </div>
+
       <div class="flex flex-wrap items-center gap-2">
-        <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
-        <span class="pill flex items-center gap-2"><span id="broker-dot" class="dot"></span><span id="broker-status">Corretora desconectada</span></span><button id="logout" class="btn btn-secondary text-xs" type="button">Sair</button>
+
+        <span class="pill flex items-center gap-2">
+          <span id="api-dot" class="dot"></span>
+          <span id="api-status">API aguardando</span>
+        </span>
+
+        <span class="pill flex items-center gap-2">
+          <span id="broker-dot" class="dot"></span>
+          <span id="broker-status">Corretora desconectada</span>
+        </span>
+
+        <button
+          id="logout"
+          class="btn btn-secondary text-xs"
+          type="button"
+        >
+          Sair
+        </button>
+
       </div>
     </header>
 
-    <nav class="tabbar" aria-label="Navegação principal" role="tablist">
-      <button class="tab-button active" data-tab="main" role="tab" aria-selected="true">◈ Painel Principal</button>
-      <button class="tab-button" data-tab="auto" role="tab" aria-selected="false">✦ Autopilot</button>
-      <button class="tab-button" data-tab="manage" role="tab" aria-selected="false">◉ Gestão</button>
-      <button class="tab-button" data-tab="calendar" role="tab" aria-selected="false">▦ Calendário</button>
-      <button class="tab-button" data-tab="insights" role="tab" aria-selected="false">⌁ Insights</button>
-      <button class="tab-button" data-tab="indicators" role="tab" aria-selected="false">◫ Indicadores</button>
-      <button class="tab-button" data-tab="archive" role="tab" aria-selected="false">▤ Arquivo de Sessões</button>
-    </nav>
-    <div id="tab-pages">
-      <section class="tab-page active" data-page="main" data-theme="main" role="tabpanel"><h2 class="section-heading">Painel Principal <span class="muted text-xs font-normal">/ sinais e oportunidades</span></h2><div id="main-content" class="space-y-4"></div></section>
-      <section class="tab-page" data-page="auto" data-theme="auto" role="tabpanel"><h2 class="section-heading">Autopilot <span class="muted text-xs font-normal">/ scanner e execução</span></h2><div id="auto-content" class="space-y-4"></div></section>
-      <section class="tab-page" data-page="manage" data-theme="manage" role="tabpanel"><h2 class="section-heading">Gestão de banca <span class="muted text-xs font-normal">/ planejamento e simulação</span></h2>
-        <div class="subtabs" role="tablist"><button class="subtab active" data-strategy="fixed">Gestão Fixa</button><button class="subtab" data-strategy="soros">Soros</button><button class="subtab" data-strategy="martingale">Martingale</button></div>
-        <div class="panel p-4"><div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"><label class="text-xs muted">Banca inicial (R$)<input id="mg-bank" class="field mt-1" type="number" min="0" step="0.01" value="100"></label><label class="text-xs muted">Entrada inicial (R$)<input id="mg-entry" class="field mt-1" type="number" min="0.01" step="0.01" value="2"></label><label class="text-xs muted">Payout (%)<input id="mg-payout" class="field mt-1" type="number" min="0" max="100" step="0.1" value="85"></label><label class="text-xs muted">Quantidade de operações<input id="mg-count" class="field mt-1" type="number" min="1" max="100" value="10"></label></div><div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3"><label class="text-xs muted">Meta desejada do dia (R$)<input id="mg-target" class="field mt-1" type="number" min="0" step="0.01" value="20"></label><label class="text-xs muted">Resultado hipotético por operação<select id="mg-outcome" class="field mt-1"><option value="win">Todas vitórias (cenário ilustrativo)</option><option value="loss">Todas perdas (cenário ilustrativo)</option><option value="alternate">Alternar vitória e perda</option></select></label></div><button id="mg-calc" class="btn btn-primary mt-4" type="button">Calcular simulação</button><div id="mg-summary" class="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4"></div><div class="table-wrap mt-4"><table><thead><tr><th>Operação</th><th>Saldo inicial</th><th>Entrada</th><th>Resultado hipotético</th><th>Saldo final</th></tr></thead><tbody id="mg-rows"><tr><td colspan="5" class="skeleton">Configure os valores e calcule para visualizar a simulação.</td></tr></tbody></table></div><p class="text-xs muted mt-3">Simulação matemática, não previsão. Resultados reais dependem de payout, execução e sequência de ganhos/perdas; Soros e Martingale podem elevar rapidamente a exposição e não garantem recuperação.</p></div>
-      </section>
-      <section class="tab-page" data-page="calendar" data-theme="calendar" role="tabpanel"><h2 class="section-heading">Calendário de mercado</h2><div class="placeholder-card"><strong>Central de notícias e eventos econômicos</strong><p class="text-sm mt-2">Área preparada para reunir notícias que possam impactar os ativos de mercado aberto, com horário, fonte, região, ativo relacionado e nível de impacto.</p><p class="text-xs muted mt-3">Nenhum feed de notícias está conectado nesta versão. Notícias não serão inventadas; a integração de fontes será uma etapa separada. Ativos OTC serão identificados à parte, pois podem não ter cobertura de notícias equivalente.</p></div><div class="panel p-4 mt-4"><div class="flex flex-wrap justify-between gap-2"><strong>Eventos e notícias</strong><input id="news-date" class="field max-w-xs" type="date"></div><div id="news-list" class="placeholder-card mt-3 text-sm">Aguardando integração de uma fonte de notícias verificável.</div></div></section>
-      <section class="tab-page" data-page="insights" data-theme="insights" role="tabpanel"><h2 class="section-heading">Insights</h2><p class="muted text-sm mb-4">Leitura de comportamento baseada no histórico registrado, quando houver dados suficientes.</p><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div class="placeholder-card"><strong>Overtrading</strong><p class="text-sm mt-2">Excesso de operações, frequência e concentração por período.</p></div><div class="placeholder-card"><strong>Reversetrading / reversões</strong><p class="text-sm mt-2">Padrões de reversão e operações contra o movimento predominante.</p></div><div class="placeholder-card"><strong>Ativos fracos</strong><p class="text-sm mt-2">Ativos com desempenho histórico inferior ou sinais inconsistentes.</p></div><div class="placeholder-card"><strong>Padrões do histórico</strong><p class="text-sm mt-2">Horários, sequências, resultados e comportamento por ativo.</p></div></div><p class="text-xs muted mt-3">Os cartões são a estrutura inicial; nenhuma conclusão analítica será exibida sem cálculo sobre registros reais.</p></section>
-      <section class="tab-page" data-page="indicators" data-theme="indicators" role="tabpanel"><h2 class="section-heading">Indicadores técnicos</h2><div id="indicators-content" class="space-y-4"></div></section>
-      <section class="tab-page" data-page="archive" data-theme="archive" role="tabpanel"><h2 class="section-heading">Arquivo de sessões anteriores</h2><div id="archive-content" class="space-y-4"></div></section>
-    </div>
-    <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4 hidden">
+    <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
+
       <aside class="space-y-4">
+
         <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-cyan-300"></i> Conexão da corretora</h2>
+
+          <h2 class="font-bold mb-3 flex items-center gap-2">
+            <i data-lucide="plug" class="w-4 text-cyan-300"></i>
+            Conexão da corretora
+          </h2>
+
           <form id="broker-form" class="space-y-3">
-            <div><label class="text-xs muted">Corretora</label><select id="broker-name" class="field mt-1"><option value="iqoption">IQ Option</option><option value="polarium">Polarium</option></select></div>
-            <div><label class="text-xs muted">E-mail da corretora</label><input id="broker-email" class="field mt-1" type="email" autocomplete="off" required></div>
-            <div><label class="text-xs muted">Senha da corretora</label><input id="broker-password" class="field mt-1" type="password" autocomplete="new-password" required></div>
-            <div><label class="text-xs muted">Conta</label><select id="account-type" class="field mt-1"><option value="demo">Demo</option><option value="real">Real</option></select></div>
-            <button id="broker-connect" class="btn btn-primary w-full" type="submit">Conectar</button>
-            <button id="broker-disconnect" class="btn btn-secondary w-full hidden" type="button">Desconectar</button>
+
+            <div>
+              <label class="text-xs muted">Corretora</label>
+              <select id="broker-name" class="field mt-1">
+                <option value="iqoption">IQ Option</option>
+                <option value="polarium">Polarium</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="text-xs muted">E-mail da corretora</label>
+              <input
+                id="broker-email"
+                class="field mt-1"
+                type="email"
+                autocomplete="off"
+                required
+              >
+            </div>
+
+            <div>
+              <label class="text-xs muted">Senha da corretora</label>
+              <input
+                id="broker-password"
+                class="field mt-1"
+                type="password"
+                autocomplete="new-password"
+                required
+              >
+            </div>
+
+            <div>
+              <label class="text-xs muted">Conta</label>
+              <select id="account-type" class="field mt-1">
+                <option value="demo">Demo</option>
+                <option value="real">Real</option>
+              </select>
+            </div>
+
+            <button
+              id="broker-connect"
+              class="btn btn-primary w-full"
+              type="submit"
+            >
+              Conectar
+            </button>
+
+            <button
+              id="broker-disconnect"
+              class="btn btn-secondary w-full hidden"
+              type="button"
+            >
+              Desconectar
+            </button>
+
           </form>
-          <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
+
+          <p
+            id="broker-message"
+            class="text-xs muted mt-3"
+            aria-live="polite"
+          >
+            Aguardando conexão confirmada pelo servidor.
+          </p>
+
         </div>
+
         <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
-          <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1" selected>M1</option></select></div>
-          <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">70%</strong></div>
-          <div class="rounded-xl bg-slate-950/60 p-3 mt-3"><div class="text-xs muted">Contagem regressiva da vela atual</div><div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div><div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div></div>
-          <input id="confidence" type="range" min="50" max="99" value="70" class="w-full">
-          <div class="grid grid-cols-2 gap-2 mt-3"><div><label class="text-xs muted">Valor por ordem</label><input id="robot-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div><div><label class="text-xs muted">Meta diária</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0"></div><div class="col-span-2"><label class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0"></div></div>
-          <div class="grid grid-cols-2 gap-2 mt-3"><button id="scan-start" class="btn btn-primary" type="button" disabled>Iniciar scanner</button><button id="scan-stop" class="btn btn-danger hidden" type="button">Parar scanner</button><button id="robot-start" class="btn btn-primary" type="button" disabled>Ativar robô</button><button id="robot-pause" class="btn btn-secondary" type="button" disabled>Pausar robô</button><button id="robot-stop" class="btn btn-secondary" type="button" disabled>Desativar robô</button><button id="robot-reset" class="btn btn-secondary" type="button" disabled>Nova sessão / zerar placar</button></div>
-          <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
-          <div class="grid grid-cols-2 gap-2 mt-3 text-xs"><div class="rounded-lg bg-slate-950/60 p-3">Lucro diário<strong id="daily-profit" class="block text-base mt-1">0.00</strong></div><div class="rounded-lg bg-slate-950/60 p-3">Proteção<strong id="risk-status" class="block text-base mt-1">Normal</strong></div></div>
-          <p id="robot-status-note" class="text-xs muted mt-3">Ordens automáticas desativadas até você ativar o robô.</p>
+
+          <h2 class="font-bold mb-3 flex items-center gap-2">
+            <i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i>
+            Parâmetros do scanner
+          </h2>
+
+          <div class="mb-3">
+            <label class="text-xs muted">Tempo gráfico</label>
+            <select id="timeframe" class="field mt-1">
+              <option value="M1">M1</option>
+              <option value="M5" selected>M5</option>
+              <option value="M15">M15</option>
+            </select>
+          </div>
+
+          <div class="mb-2 flex justify-between text-xs">
+            <label for="confidence">Confiança mínima</label>
+            <strong id="confidence-label">70%</strong>
+          </div>
+
+          <div class="rounded-xl bg-slate-950/60 p-3 mt-3">
+            <div class="text-xs muted">Contagem regressiva da vela atual</div>
+            <div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div>
+            <div id="candle-countdown-note" class="text-xs muted mt-1">
+              Aguardando horário do servidor
+            </div>
+          </div>
+
+          <input
+            id="confidence"
+            type="range"
+            min="50"
+            max="99"
+            value="70"
+            class="w-full"
+          >
+
+          <div class="grid grid-cols-2 gap-2 mt-3">
+
+            <div>
+              <label class="text-xs muted">Valor por ordem</label>
+              <input
+                id="robot-amount"
+                class="field mt-1"
+                type="number"
+                min="1"
+                max="10000"
+                step="0.01"
+                value="2"
+              >
+            </div>
+
+            <div>
+              <label class="text-xs muted">Meta diária</label>
+              <input
+                id="target-gain"
+                class="field mt-1"
+                type="number"
+                min="0"
+                step="0.01"
+                value="0"
+              >
+            </div>
+
+            <div class="col-span-2">
+              <label class="text-xs muted">Limite de perda diária</label>
+              <input
+                id="max-loss"
+                class="field mt-1"
+                type="number"
+                min="0"
+                step="0.01"
+                value="0"
+              >
+            </div>
+
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 mt-3">
+
+            <button id="scan-start" class="btn btn-primary" type="button" disabled>
+              Iniciar scanner
+            </button>
+
+            <button id="scan-stop" class="btn btn-danger hidden" type="button">
+              Parar scanner
+            </button>
+
+            <button id="robot-start" class="btn btn-primary" type="button" disabled>
+              Ativar robô
+            </button>
+
+            <button id="robot-pause" class="btn btn-secondary" type="button" disabled>
+              Pausar robô
+            </button>
+
+            <button id="robot-stop" class="btn btn-secondary" type="button" disabled>
+              Desativar robô
+            </button>
+
+            <button id="robot-reset" class="btn btn-secondary" type="button" disabled>
+              Nova sessão / zerar placar
+            </button>
+
+          </div>
+
+          <p id="scan-message" class="text-xs muted mt-3">
+            Conecte a corretora para iniciar o scanner.
+          </p>
+
+          <div class="grid grid-cols-2 gap-2 mt-3 text-xs">
+
+            <div class="rounded-lg bg-slate-950/60 p-3">
+              Lucro diário
+              <strong id="daily-profit" class="block text-base mt-1">0.00</strong>
+            </div>
+
+            <div class="rounded-lg bg-slate-950/60 p-3">
+              Proteção
+              <strong id="risk-status" class="block text-base mt-1">Normal</strong>
+            </div>
+
+          </div>
+
+          <p id="robot-status-note" class="text-xs muted mt-3">
+            Ordens automáticas desativadas até você ativar o robô.
+          </p>
+
         </div>
+
         <div class="panel p-4">
+
           <h2 class="font-bold mb-2">Saldo informado pela corretora</h2>
+
           <div id="balance" class="text-2xl font-black metric">—</div>
-          <div id="balance-note" class="text-xs muted mt-1">Nenhum saldo confirmado</div>
-          <button id="refresh-balance" class="btn btn-secondary w-full mt-3 text-sm" type="button" disabled>Atualizar saldo</button>
+
+          <div id="balance-note" class="text-xs muted mt-1">
+            Nenhum saldo confirmado
+          </div>
+
+          <button
+            id="refresh-balance"
+            class="btn btn-secondary w-full mt-3 text-sm"
+            type="button"
+            disabled
+          >
+            Atualizar saldo
+          </button>
+
         </div>
+
       </aside>
 
       <section class="space-y-4 min-w-0">
+
         <div class="panel p-5">
+
           <div class="flex flex-wrap justify-between gap-3 items-start">
-            <div><div class="text-xs muted uppercase tracking-widest">Melhor oportunidade retornada pela API</div><div id="hero-asset" class="text-2xl md:text-3xl font-black mt-2">Aguardando scanner</div><div id="hero-meta" class="text-xs muted mt-1">Nenhum sinal confirmado</div></div>
-            <div class="text-right"><div id="hero-direction" class="text-xl font-black">—</div><div id="hero-confidence" class="text-sm muted">Confiança: —</div></div>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Último fechamento</div><div id="hero-price" class="font-bold metric mt-1">—</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M1</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
-            <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
-          </div>
-          <div id="three-candle-analysis" class="mt-4 rounded-xl border border-slate-700/70 bg-slate-950/50 p-3">
-            <div class="flex flex-wrap justify-between gap-2 items-center"><strong class="text-sm">Leitura conjunta dos 3 candles</strong><span class="pill">Morfologia OHLCV estimada</span></div>
-            <p class="text-xs muted mt-2">Aguardando análise dos três últimos candles fechados retornados pela estratégia.</p>
-          </div>
-          <p class="text-xs muted mt-4">O preço exibido é o fechamento da última vela retornada por <code>/api/chart</code>, não uma cotação tick a tick.</p>
-        </div>
-        <div class="panel p-4">
-          <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Histórico real de sinais</h2><span id="history-stats" class="text-xs muted">Sem operações registradas</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Execução / ordem</th><th>Lucro</th></tr></thead><tbody id="history-body"><tr><td colspan="7" class="skeleton">Aguardando histórico do servidor…</td></tr></tbody></table></div>
-        </div>
-        <div class="panel p-4">
-          <div class="flex flex-wrap justify-between items-center gap-2 mb-3"><h2 class="font-bold">Arquivo de sessões anteriores</h2><button id="archive-refresh" class="btn btn-secondary text-xs" type="button">Atualizar arquivo</button></div>
-          <div class="table-wrap"><table><thead><tr><th>Início</th><th>Sinais</th><th>Vitórias</th><th>Derrotas</th><th>Acerto</th><th>Sessão</th></tr></thead><tbody id="archive-body"><tr><td colspan="6" class="skeleton">Aguardando arquivo…</td></tr></tbody></table></div>
-          <div class="border-t border-slate-700 mt-4 pt-4">
-            <h3 class="font-bold text-sm mb-3">Pesquisar operações arquivadas</h3>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-              <input id="archive-asset" class="field text-xs" placeholder="Ativo">
-              <select id="archive-result" class="field text-xs"><option value="">Todos os resultados</option><option value="WIN">Vitória</option><option value="LOSS">Derrota</option><option value="PENDENTE">Pendente</option><option value="EMPATE">Empate</option></select>
-              <input id="archive-from" class="field text-xs" type="date" aria-label="Data inicial">
-              <input id="archive-to" class="field text-xs" type="date" aria-label="Data final">
+
+            <div>
+              <div class="text-xs muted uppercase tracking-widest">
+                Melhor oportunidade retornada pela API
+              </div>
+
+              <div id="hero-asset" class="text-2xl md:text-3xl font-black mt-2">
+                Aguardando scanner
+              </div>
+
+              <div id="hero-meta" class="text-xs muted mt-1">
+                Nenhum sinal confirmado
+              </div>
             </div>
-            <button id="archive-search" class="btn btn-secondary text-xs mt-2" type="button">Pesquisar arquivo</button>
-            <div class="table-wrap mt-3"><table><thead><tr><th>Horário</th><th>Ativo</th><th>Direção</th><th>Confiança</th><th>Resultado</th><th>Execução / ordem</th><th>Lucro</th></tr></thead><tbody id="archive-trades-body"><tr><td colspan="7" class="skeleton">Use os filtros para pesquisar operações anteriores.</td></tr></tbody></table></div>
+
+            <div class="text-right">
+              <div id="hero-direction" class="text-xl font-black">—</div>
+              <div id="hero-confidence" class="text-sm muted">
+                Confiança: —
+              </div>
+            </div>
+
           </div>
+
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
+
+            <div class="rounded-xl bg-slate-950/60 p-3">
+              <div class="text-xs muted">Último fechamento</div>
+              <div id="hero-price" class="font-bold metric mt-1">—</div>
+            </div>
+
+            <div class="rounded-xl bg-slate-950/60 p-3">
+              <div class="text-xs muted">Timeframe</div>
+              <div id="hero-timeframe" class="font-bold mt-1">M5</div>
+            </div>
+
+            <div class="rounded-xl bg-slate-950/60 p-3">
+              <div class="text-xs muted">Última vela</div>
+              <div id="hero-candle-time" class="font-bold mt-1">—</div>
+            </div>
+
+            <div class="rounded-xl bg-slate-950/60 p-3">
+              <div class="text-xs muted">Ativos no ranking</div>
+              <div id="rank-count" class="font-bold mt-1">0</div>
+            </div>
+
+          </div>
+
+          <p class="text-xs muted mt-4">
+            O preço exibido é o fechamento da última vela retornada por
+            <code>/api/chart</code>, não uma cotação tick a tick.
+          </p>
+
         </div>
+
         <div class="panel p-4">
-          <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Velas e médias móveis</h2><span id="chart-source" class="text-xs muted">Sem ativo selecionado</span></div>
-          <div id="chart-summary" class="text-sm muted">Selecione um ativo no ranking para consultar os candles reais.</div>
-          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Abertura</div><strong id="c-open">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Máxima</div><strong id="c-high">—</strong></div>
-            <div class="bg-slate-950/60 p-3 rounded-lg"><div class="muted">Mínima</div><strong id="c-low">—</strong></div>
+
+          <div class="flex justify-between items-center gap-2 mb-3">
+            <h2 class="font-bold">Histórico real de sinais</h2>
+            <span id="history-stats" class="text-xs muted">
+              Sem operações registradas
+            </span>
           </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Horário</th>
+                  <th>Ativo</th>
+                  <th>Direção</th>
+                  <th>Confiança</th>
+                  <th>Resultado</th>
+                  <th>Execução / ordem</th>
+                  <th>Lucro</th>
+                </tr>
+              </thead>
+
+              <tbody id="history-body">
+                <tr>
+                  <td colspan="7" class="skeleton">
+                    Aguardando histórico do servidor…
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
         </div>
+
+        <div class="panel p-4">
+
+          <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+            <h2 class="font-bold">Arquivo de sessões anteriores</h2>
+
+            <button
+              id="archive-refresh"
+              class="btn btn-secondary text-xs"
+              type="button"
+            >
+              Atualizar arquivo
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Início</th>
+                  <th>Sinais</th>
+                  <th>Vitórias</th>
+                  <th>Derrotas</th>
+                  <th>Acerto</th>
+                  <th>Sessão</th>
+                </tr>
+              </thead>
+
+              <tbody id="archive-body">
+                <tr>
+                  <td colspan="6" class="skeleton">
+                    Aguardando arquivo…
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="border-t border-slate-700 mt-4 pt-4">
+
+            <h3 class="font-bold text-sm mb-3">
+              Pesquisar operações arquivadas
+            </h3>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+
+              <input
+                id="archive-asset"
+                class="field text-xs"
+                placeholder="Ativo"
+              >
+
+              <select id="archive-result" class="field text-xs">
+                <option value="">Todos os resultados</option>
+                <option value="WIN">Vitória</option>
+                <option value="LOSS">Derrota</option>
+                <option value="PENDENTE">Pendente</option>
+                <option value="EMPATE">Empate</option>
+              </select>
+
+              <input
+                id="archive-from"
+                class="field text-xs"
+                type="date"
+                aria-label="Data inicial"
+              >
+
+              <input
+                id="archive-to"
+                class="field text-xs"
+                type="date"
+                aria-label="Data final"
+              >
+
+            </div>
+
+            <button
+              id="archive-search"
+              class="btn btn-secondary text-xs mt-2"
+              type="button"
+            >
+              Pesquisar arquivo
+            </button>
+
+            <div class="table-wrap mt-3">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Horário</th>
+                    <th>Ativo</th>
+                    <th>Direção</th>
+                    <th>Confiança</th>
+                    <th>Resultado</th>
+                    <th>Execução / ordem</th>
+                    <th>Lucro</th>
+                  </tr>
+                </thead>
+
+                <tbody id="archive-trades-body">
+                  <tr>
+                    <td colspan="7" class="skeleton">
+                      Use os filtros para pesquisar operações anteriores.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+
+        <div class="panel p-4">
+
+          <div class="flex justify-between items-center mb-3">
+            <h2 class="font-bold">Velas e médias móveis</h2>
+            <span id="chart-source" class="text-xs muted">
+              Sem ativo selecionado
+            </span>
+          </div>
+
+          <div id="chart-summary" class="text-sm muted">
+            Selecione um ativo no ranking para consultar os candles reais.
+          </div>
+
+          <div class="grid grid-cols-3 gap-2 mt-3 text-xs">
+
+            <div class="bg-slate-950/60 p-3 rounded-lg">
+              <div class="muted">Abertura</div>
+              <strong id="c-open">—</strong>
+            </div>
+
+            <div class="bg-slate-950/60 p-3 rounded-lg">
+              <div class="muted">Máxima</div>
+              <strong id="c-high">—</strong>
+            </div>
+
+            <div class="bg-slate-950/60 p-3 rounded-lg">
+              <div class="muted">Mínima</div>
+              <strong id="c-low">—</strong>
+            </div>
+
+          </div>
+
+        </div>
+
       </section>
 
       <aside class="panel p-4 min-w-0">
-        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
-        <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
-        <div class="border-t border-slate-700 mt-4 pt-4">
-          <h3 class="text-sm font-bold mb-2">Indicadores</h3>
-          <div id="indicator-details" class="text-xs muted">Os indicadores serão exibidos somente se a API os retornar.</div>
+
+        <div class="flex justify-between items-center gap-2 mb-3">
+          <h2 class="font-bold">Ranking do scanner</h2>
+          <span id="scanner-count" class="pill">0 ativos</span>
         </div>
+
+        <label for="market-filter" class="text-xs muted">
+          Exibir oportunidades
+        </label>
+
+        <select id="market-filter" class="field mt-1 mb-2">
+          <option value="all">Todos os mercados</option>
+          <option value="open">Mercado Aberto</option>
+          <option value="otc">OTC</option>
+        </select>
+
+        <div id="market-counts" class="text-xs muted mb-3">
+          Mercado Aberto: — · OTC: —
+        </div>
+
+        <div id="scanner-list" class="space-y-2">
+          <div class="skeleton text-sm">
+            Aguardando dados reais do scanner…
+          </div>
+        </div>
+
+        <div class="border-t border-slate-700 mt-4 pt-4">
+
+          <h3 class="text-sm font-bold mb-2">Indicadores</h3>
+
+          <div id="indicator-details" class="text-xs muted">
+            Os indicadores serão exibidos somente se a API os retornar.
+          </div>
+
+        </div>
+
       </aside>
+
     </section>
-    <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
+
+    <div
+      id="toast"
+      class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden"
+      role="status"
+    ></div>
+
   </main>
 
-<script>
-(() => {
-  'use strict';
-  const API='/api';
-  const $=id=>document.getElementById(id);
-  let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null;
-  let pollTimers=[], candleCloseAt=0, currentServerTimeframe='M1';
-  let configSaveTimer=null, configSaving=false, configDirty=false;
-  const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
-  const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
-  const safe=(v)=>String(v??'—');
-  const dateFmt=(v)=>{
-    if(v==null)return '—';
-    let d=typeof v==='number'?new Date(v<1e12?v*1000:v):new Date(v);
-    return Number.isNaN(d.getTime())?'—':d.toLocaleString('pt-BR');
-  };
-  function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');setTimeout(()=>$('toast').classList.add('hidden'),3500)}
-  async function api(path, options={}){
-    const headers={...(options.headers||{})};
-    if(options.body!==undefined)headers['Content-Type']='application/json';
-    const res=await fetch(API+path,{...options,headers,credentials:'same-origin'});
-    let data={};try{data=await res.json()}catch(_){}
-    if(!res.ok)throw new Error(data.detail||data.message||data.error||`Erro HTTP ${res.status}`);
-    return data;
-  }
-  function showDashboard(){
-    $('dashboard').classList.remove('hidden');
-    if(window.lucide)lucide.createIcons();
-  }
-  function showAuth(message=''){$('auth-panel').classList.remove('hidden');$('dashboard').classList.add('hidden');$('auth-message').textContent=message}
-  function showApp(){$('auth-panel').classList.add('hidden');$('dashboard').classList.remove('hidden');if(window.lucide)lucide.createIcons()}
-  $('auth-toggle').addEventListener('click',()=>{authMode=authMode==='login'?'register':'login';$('auth-name-wrap').classList.toggle('hidden',authMode!=='register');$('auth-submit').textContent=authMode==='login'?'Entrar':'Criar conta';$('auth-toggle').textContent=authMode==='login'?'Criar uma conta':'Já tenho conta';$('auth-password').autocomplete=authMode==='login'?'current-password':'new-password';$('auth-message').textContent=''});
-  $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const payload={email:$('auth-email').value.trim(),password:$('auth-password').value};if(authMode==='register')payload.name=$('auth-name').value.trim();try{await api(authMode==='login'?'/auth/login':'/auth/register',{method:'POST',body:JSON.stringify(payload)});authenticated=true;showApp();await refreshAll();startPolling();}catch(err){$('auth-message').textContent=err.message}});
-  $('logout').addEventListener('click',async()=>{try{await api('/auth/logout',{method:'POST'})}catch(_){}stopPolling();authenticated=false;brokerConnected=false;scanning=false;showAuth('Sessão encerrada. Entre novamente.');});
-  async function checkAuth(){try{await api('/auth/me');authenticated=true;showApp();return true}catch(_){authenticated=false;showAuth();return false}}
+  <script>
+  (() => {
+    'use strict';
 
-  $('broker-form').addEventListener('submit',async e=>{
-    e.preventDefault();
-    const btn=$('broker-connect');btn.disabled=true;btn.textContent='Conectando…';
-    $('broker-message').textContent='Aguardando confirmação da corretora pelo servidor…';
-    const password=$('broker-password').value;
-    try{
-      const result=await api('/broker/connect',{method:'POST',body:JSON.stringify({
-        broker:$('broker-name').value,email:$('broker-email').value.trim(),password,
-        account_type:$('account-type').value,simulate:false
-      })});
-      if(result.connected!==true||result.simulated===true)throw new Error(result.message||'O servidor não confirmou uma conexão real.');
-      brokerConnected=true;updateBrokerUI(result);
-      $('broker-message').textContent=result.message||'Conexão confirmada pelo servidor.';
-      toast('Corretora conectada conforme resposta da API.');
-      await refreshAll();
-    }catch(err){brokerConnected=false;updateBrokerUI();$('broker-message').textContent=err.message;toast(err.message)}
-    finally{$('broker-password').value='';btn.disabled=false;btn.textContent='Conectar'}
-  });
-  $('broker-disconnect').addEventListener('click',async()=>{
-    try{await api('/broker/disconnect',{method:'POST'});brokerConnected=false;updateBrokerUI();$('broker-message').textContent='Desconexão confirmada pelo servidor.';toast('Corretora desconectada.')}
-    catch(err){$('broker-message').textContent=err.message}
-  });
-  function updateBrokerUI(data={}){
-    $('broker-dot').className='dot '+(brokerConnected?'ok':'');
-    $('broker-status').textContent=brokerConnected?`${data.broker||$('broker-name').selectedOptions[0].text} conectado`:'Corretora desconectada';
-    $('broker-connect').classList.toggle('hidden',brokerConnected);
-    $('broker-disconnect').classList.toggle('hidden',!brokerConnected);
-    $('scan-start').disabled=!brokerConnected||scanning;
-    $('refresh-balance').disabled=!brokerConnected;
-    if(data.balance!==undefined){$('balance').textContent=`${fmt(data.balance,2)} ${safe(data.currency||'')}`;$('balance-note').textContent=`Conta ${safe(data.account_type||$('account-type').value).toUpperCase()} · resposta da API`}
-    else if(!brokerConnected){$('balance').textContent='—';$('balance-note').textContent='Nenhum saldo confirmado'}
-  }
-  async function refreshBroker(){
-    try{
-      const s=await api('/broker/status');
-      const session=s.session||s;
-      brokerConnected=session.connected===true&&!session.simulated;
-      updateBrokerUI(session);
-      if(session.connected===true&&session.balance!==undefined)updateBrokerUI(session);
-      if(s.connected===false||session.connected===false)brokerConnected=false;
-    }catch(err){$('broker-message').textContent='Status da corretora indisponível: '+err.message}
-  }
-  $('refresh-balance').addEventListener('click',async()=>{
-    try{const s=await api('/broker/refresh-balance',{method:'POST'});const x=s.session||s;if(x.balance!==undefined)updateBrokerUI(x);else toast('A API não retornou o saldo.')}
-    catch(err){toast(err.message)}
-  });
+    const API = '/api';
+    const $ = id => document.getElementById(id);
 
-  function readConfig(){return {
-    timeframe:$('timeframe').value,
-    min_confidence:Number($('confidence').value),
-    amount:Number($('robot-amount').value),
-    target_gain:Number($('target-gain').value),
-    max_loss:Number($('max-loss').value)
-  }}
-  async function saveConfig(){
-    if(!authenticated)return;
-    const cfg=readConfig();
-    if(!Number.isFinite(cfg.amount)||cfg.amount<1||!Number.isFinite(cfg.target_gain)||cfg.target_gain<0||!Number.isFinite(cfg.max_loss)||cfg.max_loss<0){
-      $('scan-message').textContent='Confira os valores: entrada mínima 1; metas e limites não podem ser negativos.';
-      return;
+    let brokerConnected = false;
+    let scanning = false;
+    let robotPaused = false;
+    let robotActive = false;
+    let authMode = 'login';
+    let authenticated = false;
+    let selectedAsset = '';
+    let selectedSignal = null;
+    let marketFilter = 'all';
+    let lastRankingItems = [];
+
+    let pollTimers = [];
+    let candleCloseAt = 0;
+
+    let configSaveTimer = null;
+    let configSaving = false;
+    let configDirty = false;
+
+    const configFields = [
+      'timeframe',
+      'confidence',
+      'robot-amount',
+      'target-gain',
+      'max-loss'
+    ];
+
+    const fmt = (v, d = 5) =>
+      Number.isFinite(Number(v)) ? Number(v).toFixed(d) : '—';
+
+    const safe = v => String(v ?? '—');
+
+    const dateFmt = v => {
+      if (v == null) return '—';
+
+      let d = typeof v === 'number'
+        ? new Date(v < 1e12 ? v * 1000 : v)
+        : new Date(v);
+
+      return Number.isNaN(d.getTime())
+        ? '—'
+        : d.toLocaleString('pt-BR');
+    };
+
+    function toast(msg) {
+      $('toast').textContent = msg;
+      $('toast').classList.remove('hidden');
+
+      setTimeout(
+        () => $('toast').classList.add('hidden'),
+        3500
+      );
     }
-    configSaving=true;
-    try{
-      await api('/scan/config',{method:'PUT',body:JSON.stringify(cfg)});
-      configDirty=false;
-      $('scan-message').textContent='Configurações salvas no servidor.';
-    }catch(err){
-      $('scan-message').textContent='Não foi possível salvar as configurações: '+err.message;
-      toast(err.message);
-    }finally{configSaving=false}
-  }
-  function scheduleConfigSave(){
-    configDirty=true;
-    clearTimeout(configSaveTimer);
-    configSaveTimer=setTimeout(saveConfig,450);
-  }
-  $('confidence').addEventListener('input',e=>{$('confidence-label').textContent=e.target.value+'%';scheduleConfigSave()});
-  $('timeframe').addEventListener('change',async()=>{
-    $('hero-timeframe').textContent=currentServerTimeframe==='M1'?'M1':`${currentServerTimeframe} · FORA DO PADRÃO`;
-    scheduleConfigSave();
-    if(selectedAsset)await refreshChart();
-  });
-  ['robot-amount','target-gain','max-loss'].forEach(id=>$(id).addEventListener('change',scheduleConfigSave));
-  $('scan-start').addEventListener('click',async()=>{
-    try{
-      await saveConfig();
-      const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
-      })});
-      scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
-      await refreshScan();
-    }catch(err){$('scan-message').textContent=err.message;toast('Não foi possível iniciar: '+err.message)}
-  });
-  $('scan-stop').addEventListener('click',async()=>{
-    try{const result=await api('/scan/stop',{method:'POST'});scanning=false;updateScanUI();$('scan-message').textContent=result.message||'Scanner parado pelo servidor.';toast('Scanner parado.')}
-    catch(err){$('scan-message').textContent=err.message}
-  });
-  function updateScanUI(){
-    $('scan-start').classList.toggle('hidden',scanning);$('scan-stop').classList.toggle('hidden',!scanning);
-    $('scan-start').disabled=!brokerConnected||scanning;
-  }
-  function normalizeRanking(data){
-    if(Array.isArray(data))return data;
-    if(Array.isArray(data?.ranking))return data.ranking;
-    if(Array.isArray(data?.items))return data.items;
-    return [];
-  }
-  function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
-  function normalizeDirection(direction){
-    const dir=String(direction||'').trim().toUpperCase();
-    if(['CALL','BUY','COMPRA','UP'].some(v=>dir===v||dir.startsWith(v+' ')))return 'CALL';
-    if(['PUT','SELL','VENDA','DOWN'].some(v=>dir===v||dir.startsWith(v+' ')))return 'PUT';
-    return 'NEUTRO';
-  }
-  function directionLabel(direction){
-    const dir=normalizeDirection(direction);
-    return dir==='CALL'?'COMPRA · CALL':dir==='PUT'?'VENDA · PUT':'NEUTRO';
-  }
-  function directionClass(direction){
-    const dir=normalizeDirection(direction);
-    return dir==='CALL'?'signal-call':dir==='PUT'?'signal-put':'signal-neutral';
-  }
-  function renderRanking(items){
-    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
-    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
-    $('scanner-list').innerHTML=items.map((x,i)=>{
-      const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-      const conf=x.confidence??x.confidence_pct??x.score;
-      const price=x.price??x.close;
-      return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${directionClass(dir)}">${escapeHtml(directionLabel(dir))}</span></div>
-        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
-      </button>`;
-    }).join('');
-    $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
-      const item=items[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
-    }));
-    if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
-  }
-  function renderThreeCandleAnalysis(ind){
-    const root=$('three-candle-analysis');
-    if(!root)return;
-    const details=Array.isArray(ind?.three_candle_details)?ind.three_candle_details:[];
-    const dir=normalizeDirection(ind?.three_candle_direction);
-    const sequence=String(ind?.three_candle_sequence||'LEITURA INDISPONIVEL').replaceAll('_',' ');
-    const reason=String(ind?.three_candle_reason||'AGUARDANDO DADOS').replaceAll('_',' ');
-    if(details.length!==3){
-      root.innerHTML=`<div class="flex flex-wrap justify-between gap-2 items-center"><strong class="text-sm">Leitura conjunta dos 3 candles</strong><span class="pill signal-neutral">NEUTRO</span></div><p class="text-xs muted mt-2">Três candles válidos ainda não foram disponibilizados. ${escapeHtml(reason)}.</p>`;
-      return;
-    }
-    const cards=details.map((c,i)=>{
-      const label=directionLabel(c.direction);
-      return `<div class="rounded-lg border border-slate-700 bg-slate-900/70 p-2 min-w-0"><div class="flex justify-between gap-1"><strong class="text-xs">Candle ${i+1}</strong><span class="text-xs ${directionClass(c.direction)}">${escapeHtml(label)}</span></div><div class="grid grid-cols-2 gap-x-2 gap-y-1 mt-2 text-xs muted"><span>Corpo</span><b class="text-slate-200">${(Number(c.body_ratio||0)*100).toFixed(0)}%</b><span>Pavio sup.</span><b class="text-slate-200">${(Number(c.upper_wick_ratio||0)*100).toFixed(0)}%</b><span>Pavio inf.</span><b class="text-slate-200">${(Number(c.lower_wick_ratio||0)*100).toFixed(0)}%</b><span>Fechamento</span><b class="text-slate-200">${(Number(c.close_position||0)*100).toFixed(0)}%</b></div></div>`;
-    }).join('');
-    root.innerHTML=`<div class="flex flex-wrap justify-between gap-2 items-center"><strong class="text-sm">Leitura conjunta dos 3 candles</strong><span class="pill ${directionClass(dir)}">${escapeHtml(directionLabel(dir))}</span></div><p class="text-xs muted mt-1">${escapeHtml(sequence)} · pressão agregada ${Number(ind.three_candle_score||0).toFixed(2)} · ${escapeHtml(reason)}</p><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">${cards}</div><p class="text-[11px] muted mt-2">Leitura estimada por corpo, pavios, posição do fechamento e sequência. Não representa agressão real bid/ask.</p>`;
-  }
-  function renderHero(x){
-    const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-    $('hero-asset').textContent=asset;$('hero-direction').textContent=directionLabel(dir);
-    $('hero-direction').className='text-xl font-black '+directionClass(dir);
-    const conf=x.confidence??x.confidence_pct??x.score;
-    $('hero-confidence').textContent='Confiança: '+(conf==null?'—':conf+'%');
-    $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
-    $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
-    $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators||x.analysis||null;
-    renderThreeCandleAnalysis(ind);
-    $('indicator-details').textContent=ind?JSON.stringify(ind):'A API não retornou valores detalhados dos indicadores para este sinal.';
-  }
-  function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-  function updateCandleCountdown(){if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));$('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0')}
-  async function refreshScan(){
-    try{
-      const s=await api('/scan/state');
-      scanning=s.running===true;robotPaused=s.paused===true;robotActive=s.auto_trade===true;updateScanUI();updateRobotUI();
-      currentServerTimeframe=String(s.timeframe||'M1').toUpperCase();
-      candleCloseAt=Number(s.candle_close_ts||0);
-      $('candle-countdown-note').textContent=currentServerTimeframe==='M1'
-        ?(candleCloseAt?'Fechamento estimado da vela M1 · horário do servidor':'Inicie o scanner para sincronizar a contagem.')
-        :`A API informou ${currentServerTimeframe}; M1 não está confirmado. Pare e reinicie o scanner para aplicar M1.`;
-      $('hero-timeframe').textContent=currentServerTimeframe==='M1'?'M1':`${currentServerTimeframe} · FORA DO PADRÃO`;
-      updateCandleCountdown();
-      const editingConfig=configDirty||configSaving||configFields.some(id=>$(id)===document.activeElement);
-      if(!editingConfig){
-        $('timeframe').value='M1';
-        $('confidence').value=s.min_confidence??$('confidence').value;
-        $('confidence-label').textContent=$('confidence').value+'%';
-        $('robot-amount').value=s.amount??$('robot-amount').value;
-        $('target-gain').value=s.target_gain??0;
-        $('max-loss').value=s.max_loss??0;
+
+    async function api(path, options = {}) {
+      const headers = { ...(options.headers || {}) };
+
+      if (options.body !== undefined) {
+        headers['Content-Type'] = 'application/json';
       }
-      $('daily-profit').textContent=fmt(s.daily_profit??0,2);$('risk-status').textContent=s.risk_halted?'BLOQUEADO':'Normal';$('risk-status').className='block text-base mt-1 '+(s.risk_halted?'text-rose-300':'text-emerald-300');$('robot-status-note').textContent=s.risk_reason||s.message||'Proteção diária ativa conforme configuração.';
-      $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
-      const ranking=normalizeRanking(s);
-      renderRanking(ranking);
-      if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
-      $('api-dot').className='dot ok';$('api-status').textContent='API conectada';
-    }catch(err){$('api-dot').className='dot bad';$('api-status').textContent='API indisponível';$('scan-message').textContent=err.message}
-  }
-  async function refreshChart(){
-    if(!selectedAsset||selectedAsset==='—')return;
-    try{
-      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset));
-      const candles=Array.isArray(data.candles)?data.candles:[];
-      const c=candles[candles.length-1];
-      $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
-      if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
-      $('hero-price').textContent=fmt(c.close,5);
-      $('hero-candle-time').textContent=dateFmt(c.ts);
-      $('c-open').textContent=fmt(c.open,5);$('c-high').textContent=fmt(c.high,5);$('c-low').textContent=fmt(c.low,5);
-      $('chart-summary').textContent=`${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close,5)}. MA9: ${last(data.ma9)} · MA21: ${last(data.ma21)}.`;
-    }catch(err){$('chart-summary').textContent='Falha ao consultar candles: '+err.message}
-  }
-  function last(arr){if(!Array.isArray(arr)||!arr.length)return '—';const v=arr[arr.length-1];return fmt(typeof v==='object'?v.value:v,5)}
-  function tradeExecutionLabel(item){
-    const trade=item?.trade||{};
-    const status=String(trade.status||'').toUpperCase();
-    const orderId=trade.order_id;
-    if(orderId!==undefined&&orderId!==null&&String(orderId).trim()!==''){
-      return `${status||'ABERTA'} · #${String(orderId)}`;
-    }
-    if(status==='ERRO')return `ERRO · ${String(trade.error||'falha ao enviar')}`;
-    if(status==='ABERTA')return 'ABERTA · ID não retornado';
-    if(status==='FECHADA')return 'FECHADA · ID não retornado';
-    return 'SEM ORDEM';
-  }
-  function resultClass(value){
-    const result=String(value||'PENDENTE').toUpperCase();
-    if(result==='WIN'||result==='WON'||result==='GAIN')return 'text-emerald-300';
-    if(result==='LOSS'||result==='LOST')return 'text-rose-300';
-    return 'text-amber-200';
-  }
-  async function refreshHistory(){
-    try{
-      const data=await api('/signals/history?limit=50');
-      const items=Array.isArray(data.items)?data.items:[];
-      $('history-stats').textContent=data.stats?`${data.stats.wins??0} vitórias · ${data.stats.losses??0} perdas · ${fmt(data.stats.winrate??0,1)}% acerto · lucro ${fmt(data.stats.profit??0,2)}`:'';
-      if(!items.length){$('history-body').innerHTML='<tr><td colspan="7" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';return}
-      $('history-body').innerHTML=items.map(x=>{
-        const result=String(x.result??x.status??'PENDENTE').toUpperCase();
-        const execution=tradeExecutionLabel(x);
-        const profit=x.profit??x.trade?.profit;
-        return `<tr><td>${escapeHtml(dateFmt(x.ts??x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td class="${directionClass(x.direction??x.action)}">${escapeHtml(directionLabel(x.direction??x.action))}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(result)}">${escapeHtml(result)}</td><td>${escapeHtml(execution)}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`;
-      }).join('');
-    }catch(err){$('history-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
-  }
-  function updateRobotUI(){
-    $('robot-start').disabled=!brokerConnected||robotActive;
-    $('robot-pause').disabled=!scanning;$('robot-pause').textContent=robotPaused?'Retomar robô':'Pausar robô';
-    $('robot-stop').disabled=!robotActive;$('robot-reset').disabled=!authenticated;
-    $('robot-status-note').textContent=robotActive?(robotPaused?'Robô pausado; sinais pendentes continuam sendo acompanhados.':'Robô automático ativo.'):'Ordens automáticas desativadas; scanner analítico pode continuar ativo.';
-  }
-  $('robot-start').addEventListener('click',async()=>{try{const cfg={auto_trade:true,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)};const r=scanning?await api('/robot/start',{method:'POST',body:JSON.stringify(cfg)}):await api('/scan/start',{method:'POST',body:JSON.stringify({...cfg,timeframe:$('timeframe').value,min_confidence:Number($('confidence').value)})});robotActive=true;robotPaused=false;$('scan-message').textContent=r.message;toast(r.message||'Robô ativado pelo servidor.');await refreshScan()}catch(e){toast(e.message);$('scan-message').textContent=e.message}});
-  $('robot-pause').addEventListener('click',async()=>{try{const r=await api('/robot/pause',{method:'POST'});robotPaused=r.paused;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
-  $('robot-stop').addEventListener('click',async()=>{try{const r=await api('/robot/stop',{method:'POST'});robotActive=false;robotPaused=false;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
-  $('robot-reset').addEventListener('click',async()=>{if(!confirm('Criar uma nova sessão e zerar somente o placar atual? O arquivo anterior será preservado.'))return;try{const r=await api('/robot/reset',{method:'POST'});toast(r.message);await Promise.all([refreshScan(),refreshHistory(),refreshArchive()])}catch(e){toast(e.message)}});
-  async function refreshArchive(){try{const r=await api('/signals/sessions?limit=100');const a=Array.isArray(r.sessions)?r.sessions:[];$('archive-body').innerHTML=a.length?a.map(x=>`<tr><td>${escapeHtml(dateFmt(x.session_started_at||x.first_signal_at))}</td><td>${x.signals??0}</td><td class="text-emerald-300">${x.wins??0}</td><td class="text-rose-300">${x.losses??0}</td><td>${fmt(x.winrate??0,1)}%</td><td title="${escapeHtml(x.session_id)}">${escapeHtml(String(x.session_id||'').slice(0,8))}…</td></tr>`).join(''):'<tr><td colspan="6" class="skeleton">Nenhuma sessão arquivada.</td></tr>'}catch(e){$('archive-body').innerHTML=`<tr><td colspan="6">${escapeHtml(e.message)}</td></tr>`}}
-  $('archive-refresh').addEventListener('click',refreshArchive);
-  async function searchArchive(){
-    const params=new URLSearchParams({limit:'500'});
-    const asset=$('archive-asset').value.trim(),result=$('archive-result').value,from=$('archive-from').value,to=$('archive-to').value;
-    if(asset)params.set('asset',asset);if(result)params.set('result',result);if(from)params.set('date_from',from);if(to)params.set('date_to',to);
-    try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td class="${directionClass(x.direction)}">${escapeHtml(directionLabel(x.direction))}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(res)}">${escapeHtml(res)}</td><td>${escapeHtml(tradeExecutionLabel(x))}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
-  }
-  $('archive-search').addEventListener('click',searchArchive);
-  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory(),refreshArchive()])}
-  function startPolling(){
-    if(!authenticated)return;
-    stopPolling();
-    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
-  }
-  function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
-  updateRobotUI();
-  checkAuth().then(ok=>{if(ok){refreshAll().then(startPolling)}});
-  if(window.lucide)lucide.createIcons();
-})();
-</script>
 
-<script>
-(() => {
-  const $ = id => document.getElementById(id);
-  const originalGrid = document.querySelector('#dashboard > section.dashboard-grid');
-  if (!originalGrid) return;
-  const left = originalGrid.children[0], center = originalGrid.children[1], right = originalGrid.children[2];
-  const main = $('main-content'), auto = $('auto-content'), indicators = $('indicators-content'), archive = $('archive-content');
-  // Reaproveita os mesmos elementos e IDs: listeners e integração com a API permanecem intactos.
-  auto.append(left);
-  main.append(center.children[0], center.children[1]);
-  archive.append(center.children[2]);
-  indicators.append(center.children[3]);
-  const ranking = right.children[0];
-  const indicatorPanel = right.children[1];
-  main.append(ranking);
-  indicators.append(indicatorPanel);
-  originalGrid.remove();
-  document.querySelectorAll('[data-tab]').forEach(button => button.addEventListener('click', () => {
-    const key = button.dataset.tab;
-    document.querySelectorAll('.tab-button').forEach(b => { const active = b === button; b.classList.toggle('active', active); b.setAttribute('aria-selected', String(active)); });
-    document.querySelectorAll('.tab-page').forEach(page => page.classList.toggle('active', page.dataset.page === key));
-  }));
-  let strategy = 'fixed';
-  document.querySelectorAll('[data-strategy]').forEach(button => button.addEventListener('click', () => {
-    strategy = button.dataset.strategy;
-    document.querySelectorAll('[data-strategy]').forEach(b => b.classList.toggle('active', b === button));
-    $('mg-calc').click();
-  }));
-  $('mg-calc').addEventListener('click', () => {
-    const bank = Math.max(0, Number($('mg-bank').value) || 0);
-    const base = Math.max(0, Number($('mg-entry').value) || 0);
-    const payout = Math.min(100, Math.max(0, Number($('mg-payout').value) || 0)) / 100;
-    const count = Math.min(100, Math.max(1, Math.floor(Number($('mg-count').value) || 1)));
-    const outcome = $('mg-outcome').value;
-    let balance = bank, exposure = 0, nextEntry = base, rows = [];
-    for (let i = 1; i <= count; i++) {
-      const entry = strategy === 'fixed' ? base : nextEntry;
-      const win = outcome === 'win' || (outcome === 'alternate' && i % 2 === 1);
-      const result = win ? entry * payout : -entry;
-      const start = balance; balance += result; exposure += entry;
-      rows.push(`<tr><td>${i}</td><td>R$ ${start.toFixed(2)}</td><td>R$ ${entry.toFixed(2)}</td><td class="${win?'text-emerald-300':'text-rose-300'}">${win?'+':'−'} R$ ${Math.abs(result).toFixed(2)}</td><td>R$ ${balance.toFixed(2)}</td></tr>`);
-      if (strategy === 'soros') nextEntry = win ? entry + Math.max(0, result) : base;
-      if (strategy === 'martingale') nextEntry = win ? base : entry * 2;
+      const res = await fetch(API + path, {
+        ...options,
+        headers,
+        credentials: 'same-origin'
+      });
+
+      let data = {};
+
+      try {
+        data = await res.json();
+      } catch (_) {}
+
+      if (!res.ok) {
+        throw new Error(
+          data.detail ||
+          data.message ||
+          data.error ||
+          `Erro HTTP ${res.status}`
+        );
+      }
+
+      return data;
     }
-    const profit = balance - bank;
-    $('mg-summary').innerHTML = [ ['Saldo projetado',`R$ ${balance.toFixed(2)}`],['Resultado hipotético',`${profit>=0?'+':'−'} R$ ${Math.abs(profit).toFixed(2)}`],['Exposição acumulada',`R$ ${exposure.toFixed(2)}`],['Meta do dia',profit >= Number($('mg-target').value||0)?'Atingida no cenário':'Não atingida no cenário'] ].map(([k,v])=>`<div class="rounded-xl bg-black/25 border border-purple-400/20 p-3"><div class="text-xs muted">${k}</div><strong class="block mt-1">${v}</strong></div>`).join('');
-    $('mg-rows').innerHTML = rows.join('');
-  });
-  $('mg-calc').click();
-})();
-</script>
+
+    function showDashboard() {
+      $('dashboard').classList.remove('hidden');
+
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+    }
+
+    function showAuth(message = '') {
+      $('auth-panel').classList.remove('hidden');
+      $('dashboard').classList.add('hidden');
+      $('auth-message').textContent = message;
+    }
+
+    function showApp() {
+      $('auth-panel').classList.add('hidden');
+      $('dashboard').classList.remove('hidden');
+
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+    }
+
+    $('auth-toggle').addEventListener('click', () => {
+      authMode = authMode === 'login' ? 'register' : 'login';
+
+      $('auth-name-wrap').classList.toggle(
+        'hidden',
+        authMode !== 'register'
+      );
+
+      $('auth-submit').textContent =
+        authMode === 'login' ? 'Entrar' : 'Criar conta';
+
+      $('auth-toggle').textContent =
+        authMode === 'login'
+          ? 'Criar uma conta'
+          : 'Já tenho conta';
+
+      $('auth-password').autocomplete =
+        authMode === 'login'
+          ? 'current-password'
+          : 'new-password';
+
+      $('auth-message').textContent = '';
+    });
+
+    $('auth-form').addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const payload = {
+        email: $('auth-email').value.trim(),
+        password: $('auth-password').value
+      };
+
+      if (authMode === 'register') {
+        payload.name = $('auth-name').value.trim();
+      }
+
+      try {
+        await api(
+          authMode === 'login'
+            ? '/auth/login'
+            : '/auth/register',
+          {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          }
+        );
+
+        authenticated = true;
+        showApp();
+        await refreshAll();
+        startPolling();
+
+      } catch (err) {
+        $('auth-message').textContent = err.message;
+      }
+    });
+
+    $('logout').addEventListener('click', async () => {
+      try {
+        await api('/auth/logout', { method: 'POST' });
+      } catch (_) {}
+
+      stopPolling();
+
+      authenticated = false;
+      brokerConnected = false;
+      scanning = false;
+
+      showAuth('Sessão encerrada. Entre novamente.');
+    });
+
+    async function checkAuth() {
+      try {
+        await api('/auth/me');
+        authenticated = true;
+        showApp();
+        return true;
+
+      } catch (_) {
+        authenticated = false;
+        showAuth();
+        return false;
+      }
+    }
+
+    $('broker-form').addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const btn = $('broker-connect');
+
+      btn.disabled = true;
+      btn.textContent = 'Conectando…';
+
+      $('broker-message').textContent =
+        'Aguardando confirmação da corretora pelo servidor…';
+
+      const password = $('broker-password').value;
+
+      try {
+        const result = await api('/broker/connect', {
+          method: 'POST',
+          body: JSON.stringify({
+            broker: $('broker-name').value,
+            email: $('broker-email').value.trim(),
+            password,
+            account_type: $('account-type').value,
+            simulate: false
+          })
+        });
+
+        if (
+          result.connected !== true ||
+          result.simulated === true
+        ) {
+          throw new Error(
+            result.message ||
+            'O servidor não confirmou uma conexão real.'
+          );
+        }
+
+        brokerConnected = true;
+        updateBrokerUI(result);
+
+        $('broker-message').textContent =
+          result.message ||
+          'Conexão confirmada pelo servidor.';
+
+        toast('Corretora conectada conforme resposta da API.');
+
+        await refreshAll();
+
+      } catch (err) {
+        brokerConnected = false;
+        updateBrokerUI();
+
+        $('broker-message').textContent = err.message;
+        toast(err.message);
+
+      } finally {
+        $('broker-password').value = '';
+        btn.disabled = false;
+        btn.textContent = 'Conectar';
+      }
+    });
+
+    $('broker-disconnect').addEventListener('click', async () => {
+      try {
+        await api('/broker/disconnect', { method: 'POST' });
+
+        brokerConnected = false;
+        updateBrokerUI();
+
+        $('broker-message').textContent =
+          'Desconexão confirmada pelo servidor.';
+
+        toast('Corretora desconectada.');
+
+      } catch (err) {
+        $('broker-message').textContent = err.message;
+      }
+    });
+
+    function updateBrokerUI(data = {}) {
+      $('broker-dot').className =
+        'dot ' + (brokerConnected ? 'ok' : '');
+
+      $('broker-status').textContent = brokerConnected
+        ? `${data.broker || $('broker-name').selectedOptions[0].text} conectado`
+        : 'Corretora desconectada';
+
+      $('broker-connect').classList.toggle(
+        'hidden',
+        brokerConnected
+      );
+
+      $('broker-disconnect').classList.toggle(
+        'hidden',
+        !brokerConnected
+      );
+
+      $('scan-start').disabled =
+        !brokerConnected || scanning;
+
+      $('refresh-balance').disabled =
+        !brokerConnected;
+
+      if (data.balance !== undefined) {
+        $('balance').textContent =
+          `${fmt(data.balance, 2)} ${safe(data.currency || '')}`;
+
+        $('balance-note').textContent =
+          `Conta ${safe(data.account_type || $('account-type').value).toUpperCase()} · resposta da API`;
+
+      } else if (!brokerConnected) {
+        $('balance').textContent = '—';
+        $('balance-note').textContent =
+          'Nenhum saldo confirmado';
+      }
+    }
+
+    async function refreshBroker() {
+      try {
+        const s = await api('/broker/status');
+        const session = s.session || s;
+
+        brokerConnected =
+          session.connected === true &&
+          !session.simulated;
+
+        updateBrokerUI(session);
+
+        if (
+          session.connected === true &&
+          session.balance !== undefined
+        ) {
+          updateBrokerUI(session);
+        }
+
+        if (
+          s.connected === false ||
+          session.connected === false
+        ) {
+          brokerConnected = false;
+        }
+
+      } catch (err) {
+        $('broker-message').textContent =
+          'Status da corretora indisponível: ' + err.message;
+      }
+    }
+
+    $('refresh-balance').addEventListener('click', async () => {
+      try {
+        const s = await api(
+          '/broker/refresh-balance',
+          { method: 'POST' }
+        );
+
+        const x = s.session || s;
+
+        if (x.balance !== undefined) {
+          updateBrokerUI(x);
+        } else {
+          toast('A API não retornou o saldo.');
+        }
+
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+
+    function readConfig() {
+      return {
+        timeframe: $('timeframe').value,
+        min_confidence: Number($('confidence').value),
+        amount: Number($('robot-amount').value),
+        target_gain: Number($('target-gain').value),
+        max_loss: Number($('max-loss').value)
+      };
+    }
+
+    async function saveConfig() {
+      if (!authenticated) return;
+
+      const cfg = readConfig();
+
+      if (
+        !Number.isFinite(cfg.amount) ||
+        cfg.amount < 1 ||
+        !Number.isFinite(cfg.target_gain) ||
+        cfg.target_gain < 0 ||
+        !Number.isFinite(cfg.max_loss) ||
+        cfg.max_loss < 0
+      ) {
+        $('scan-message').textContent =
+          'Confira os valores: entrada mínima 1; metas e limites não podem ser negativos.';
+        return;
+      }
+
+      configSaving = true;
+
+      try {
+        await api('/scan/config', {
+          method: 'PUT',
+          body: JSON.stringify(cfg)
+        });
+
+        configDirty = false;
+
+        $('scan-message').textContent =
+          'Configurações salvas no servidor.';
+
+      } catch (err) {
+        $('scan-message').textContent =
+          'Não foi possível salvar as configurações: ' +
+          err.message;
+
+        toast(err.message);
+
+      } finally {
+        configSaving = false;
+      }
+    }
+
+    function scheduleConfigSave() {
+      configDirty = true;
+
+      clearTimeout(configSaveTimer);
+      configSaveTimer = setTimeout(saveConfig, 450);
+    }
+
+    $('confidence').addEventListener('input', e => {
+      $('confidence-label').textContent =
+        e.target.value + '%';
+
+      scheduleConfigSave();
+    });
+
+    $('timeframe').addEventListener('change', async () => {
+      $('hero-timeframe').textContent =
+        $('timeframe').value;
+
+      scheduleConfigSave();
+
+      if (selectedAsset) {
+        await refreshChart();
+      }
+    });
+
+    [
+      'robot-amount',
+      'target-gain',
+      'max-loss'
+    ].forEach(id => {
+      $(id).addEventListener('change', scheduleConfigSave);
+    });
+
+    $('scan-start').addEventListener('click', async () => {
+      try {
+        await saveConfig();
+
+        const result = await api('/scan/start', {
+          method: 'POST',
+          body: JSON.stringify({
+            timeframe: $('timeframe').value,
+            min_confidence: Number($('confidence').value),
+            auto_trade: false,
+            amount: Number($('robot-amount').value),
+            target_gain: Number($('target-gain').value),
+            max_loss: Number($('max-loss').value)
+          })
+        });
+
+        scanning = true;
+        updateScanUI();
+
+        $('scan-message').textContent =
+          result.message || 'Scanner iniciado pelo servidor.';
+
+        toast('Scanner iniciado.');
+
+        await refreshScan();
+
+      } catch (err) {
+        $('scan-message').textContent = err.message;
+        toast('Não foi possível iniciar: ' + err.message);
+      }
+    });
+
+    $('scan-stop').addEventListener('click', async () => {
+      try {
+        const result = await api(
+          '/scan/stop',
+          { method: 'POST' }
+        );
+
+        scanning = false;
+        updateScanUI();
+
+        $('scan-message').textContent =
+          result.message || 'Scanner parado pelo servidor.';
+
+        toast('Scanner parado.');
+
+      } catch (err) {
+        $('scan-message').textContent = err.message;
+      }
+    });
+
+    function updateScanUI() {
+      $('scan-start').classList.toggle('hidden', scanning);
+      $('scan-stop').classList.toggle('hidden', !scanning);
+
+      $('scan-start').disabled =
+        !brokerConnected || scanning;
+    }
+
+    function normalizeRanking(data) {
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.ranking)) return data.ranking;
+      if (Array.isArray(data?.items)) return data.items;
+
+      return [];
+    }
+
+    function getAsset(x) {
+      return x.asset ||
+        x.symbol ||
+        x.active ||
+        x.pair ||
+        '—';
+    }
+
+    function directionClass(direction) {
+      const dir = String(direction || '').toUpperCase();
+
+      if (
+        ['CALL', 'BUY', 'COMPRA', 'UP']
+          .some(v => dir === v || dir.startsWith(v + ' '))
+      ) {
+        return 'signal-call';
+      }
+
+      if (
+        ['PUT', 'SELL', 'VENDA', 'DOWN']
+          .some(v => dir === v || dir.startsWith(v + ' '))
+      ) {
+        return 'signal-put';
+      }
+
+      return 'signal-neutral';
+    }
+
+    function getMarketType(item) {
+      const raw = String(
+        item?.market_type || item?.market || ''
+      ).toLowerCase();
+
+      if (raw === 'otc' || raw.includes('otc')) {
+        return 'otc';
+      }
+
+      if (
+        raw === 'open' ||
+        raw.includes('aberto') ||
+        raw.includes('regular')
+      ) {
+        return 'open';
+      }
+
+      return getAsset(item).toUpperCase().includes('OTC')
+        ? 'otc'
+        : 'open';
+    }
+
+    function marketLabel(type) {
+      return type === 'otc'
+        ? 'OTC'
+        : 'Mercado Aberto';
+    }
+
+    function marketMatchesFilter(item) {
+      return marketFilter === 'all' ||
+        getMarketType(item) === marketFilter;
+    }
+
+    $('market-filter').addEventListener('change', () => {
+      marketFilter = $('market-filter').value;
+      renderRanking(lastRankingItems);
+    });
+
+    function renderRanking(items) {
+      lastRankingItems = Array.isArray(items) ? items : [];
+
+      const visible = lastRankingItems.filter(marketMatchesFilter);
+
+      $('rank-count').textContent = visible.length;
+
+      $('scanner-count').textContent =
+        marketFilter === 'all'
+          ? `${visible.length} ativos`
+          : `${visible.length} de ${lastRankingItems.length}`;
+
+      if (!visible.length) {
+        $('scanner-list').innerHTML = lastRankingItems.length
+          ? '<div class="skeleton text-sm">Nenhum ativo deste mercado no ranking atual.</div>'
+          : '<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';
+
+        return;
+      }
+
+      $('scanner-list').innerHTML = visible.map((x, i) => {
+        const asset = getAsset(x);
+        const dir = String(
+          x.direction || x.action || x.signal || ''
+        ).toUpperCase();
+
+        const conf =
+          x.confidence ??
+          x.confidence_pct ??
+          x.score;
+
+        const price = x.price ?? x.close;
+        const type = getMarketType(x);
+        const label = marketLabel(type);
+
+        const badgeClass = type === 'otc'
+          ? 'text-amber-200 border-amber-500/40 bg-amber-500/10'
+          : 'text-cyan-200 border-cyan-500/40 bg-cyan-500/10';
+
+        return `
+          <button
+            type="button"
+            data-index="${i}"
+            class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3"
+          >
+            <div class="flex justify-between gap-2 items-center">
+              <strong class="text-sm">${escapeHtml(asset)}</strong>
+              <span class="text-[10px] rounded-full border px-2 py-1 ${badgeClass}">
+                ${label}
+              </span>
+            </div>
+
+            <div class="flex justify-between gap-2 mt-2 text-xs">
+              <span class="${directionClass(dir)}">
+                ${escapeHtml(dir || '—')}
+              </span>
+
+              <span class="muted">
+                Confiança: ${conf == null ? '—' : escapeHtml(conf) + '%'}
+              </span>
+
+              <span class="muted">
+                ${price == null ? '' : escapeHtml(fmt(price, 5))}
+              </span>
+            </div>
+          </button>
+        `;
+      }).join('');
+
+      $('scanner-list')
+        .querySelectorAll('button[data-index]')
+        .forEach(b => {
+          b.addEventListener('click', () => {
+            const item = visible[Number(b.dataset.index)];
+
+            selectedSignal = item;
+            selectedAsset = getAsset(item);
+
+            renderHero(item);
+            refreshChart();
+          });
+        });
+
+      if (
+        !selectedAsset ||
+        !visible.some(x => getAsset(x) === selectedAsset)
+      ) {
+        selectedSignal = visible[0];
+        selectedAsset = getAsset(visible[0]);
+
+        renderHero(visible[0]);
+        refreshChart();
+      }
+    }
+
+    function renderHero(x) {
+      const asset = getAsset(x);
+
+      const dir = String(
+        x.direction || x.action || x.signal || ''
+      ).toUpperCase();
+
+      $('hero-asset').textContent = asset;
+      $('hero-direction').textContent = dir || '—';
+
+      $('hero-direction').className =
+        'text-xl font-black ' + directionClass(dir);
+
+      const conf =
+        x.confidence ??
+        x.confidence_pct ??
+        x.score;
+
+      $('hero-confidence').textContent =
+        'Confiança: ' + (conf == null ? '—' : conf + '%');
+
+      $('hero-meta').textContent = [
+        marketLabel(getMarketType(x)),
+        x.expiration ? `Expiração: ${x.expiration}` : null,
+        x.timestamp ? `Atualizado: ${dateFmt(x.timestamp)}` : null
+      ].filter(Boolean).join(' · ') ||
+        'Sinal retornado pelo scanner';
+
+      $('hero-price').textContent =
+        x.price != null
+          ? fmt(x.price, 5)
+          : x.close != null
+            ? fmt(x.close, 5)
+            : 'Aguardando candle';
+
+      $('hero-timeframe').textContent =
+        $('timeframe').value;
+
+      const ind = x.indicators ||
+        (x.analysis && (x.analysis.indicators || x.analysis)) ||
+        null;
+
+      renderIndicators(ind);
+    }
+
+    function indicatorLabel(key) {
+      const k = String(key)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+
+      const labels = {
+        rsi: 'RSI',
+        adx: 'ADX',
+        macd: 'MACD',
+        macdsignal: 'Sinal do MACD',
+        macdhistogram: 'Histograma MACD',
+        ema9: 'EMA 9',
+        ema21: 'EMA 21',
+        sma9: 'Média móvel 9',
+        sma21: 'Média móvel 21',
+        ma9: 'Média móvel 9',
+        ma21: 'Média móvel 21',
+        bbupper: 'Bollinger superior',
+        bblower: 'Bollinger inferior',
+        bbmiddle: 'Bollinger central',
+        bollingerupper: 'Bollinger superior',
+        bollingerlower: 'Bollinger inferior',
+        bollingermiddle: 'Bollinger central',
+        atr: 'ATR',
+        stoch: 'Estocástico',
+        stochastic: 'Estocástico',
+        cci: 'CCI',
+        williamsr: 'Williams %R',
+        direction: 'Direção técnica',
+        confidence: 'Confiança',
+        ready: 'Sinal pronto',
+        trend: 'Tendência',
+        volatility: 'Volatilidade',
+        momentum: 'Momentum',
+        support: 'Suporte',
+        resistance: 'Resistência'
+      };
+
+      return labels[k] ||
+        String(key)
+          .replace(/[_-]+/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase());
+    }
+
+    function indicatorValue(value) {
+      if (
+        value === null ||
+        value === undefined ||
+        value === ''
+      ) {
+        return '—';
+      }
+
+      if (typeof value === 'boolean') {
+        return value ? 'Sim' : 'Não';
+      }
+
+      if (typeof value === 'number') {
+        return Number.isFinite(value)
+          ? value.toLocaleString('pt-BR', {
+              maximumFractionDigits: 5
+            })
+          : '—';
+      }
+
+      if (typeof value === 'string') {
+        const v = value.toUpperCase();
+
+        if (v === 'CALL') return 'COMPRA';
+        if (v === 'PUT') return 'VENDA';
+        if (v === 'NEUTRO') return 'NEUTRO';
+        if (v === 'TRUE') return 'Sim';
+        if (v === 'FALSE') return 'Não';
+
+        return value;
+      }
+
+      if (Array.isArray(value)) {
+        const lastValue = value.length
+          ? value[value.length - 1]
+          : null;
+
+        if (typeof lastValue === 'number') {
+          return indicatorValue(lastValue);
+        }
+
+        if (
+          lastValue &&
+          typeof lastValue === 'object' &&
+          'value' in lastValue
+        ) {
+          return indicatorValue(lastValue.value);
+        }
+
+        return value.length
+          ? `${value.length} valores`
+          : '—';
+      }
+
+      if (typeof value === 'object') {
+        return null;
+      }
+
+      return null;
+    }
+
+    function collectIndicatorRows(
+      obj,
+      prefix = '',
+      depth = 0,
+      rows = []
+    ) {
+      if (
+        !obj ||
+        typeof obj !== 'object' ||
+        depth > 2
+      ) {
+        return rows;
+      }
+
+      for (const [key, value] of Object.entries(obj)) {
+        if (
+          [
+            'timestamp',
+            'ts',
+            'candle_ts',
+            'asset',
+            'symbol',
+            'raw',
+            'debug',
+            'brain_snapshot'
+          ].includes(String(key).toLowerCase())
+        ) {
+          continue;
+        }
+
+        const label = prefix
+          ? `${prefix} · ${indicatorLabel(key)}`
+          : indicatorLabel(key);
+
+        const display = indicatorValue(value);
+
+        if (
+          display !== null &&
+          typeof value !== 'object'
+        ) {
+          rows.push({ label, value: display });
+
+        } else if (Array.isArray(value)) {
+          const displayArray = indicatorValue(value);
+          rows.push({ label, value: displayArray });
+
+        } else if (value && typeof value === 'object') {
+          collectIndicatorRows(
+            value,
+            label,
+            depth + 1,
+            rows
+          );
+        }
+      }
+
+      return rows;
+    }
+
+    function renderIndicators(ind) {
+      const root = $('indicator-details');
+      const rows = collectIndicatorRows(ind);
+
+      if (!rows.length) {
+        root.innerHTML =
+          '<div class="text-xs muted rounded-lg bg-slate-950/50 p-3">Aguardando valores dos indicadores retornados pela análise.</div>';
+
+        return;
+      }
+
+      root.innerHTML = `
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          ${rows.map(row => `
+            <div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-3 min-w-0">
+              <div class="text-[10px] uppercase tracking-wide muted">
+                ${escapeHtml(row.label)}
+              </div>
+
+              <div class="text-sm font-semibold text-slate-100 mt-1 break-words">
+                ${escapeHtml(row.value)}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function escapeHtml(v) {
+      return String(v ?? '').replace(
+        /[&<>"']/g,
+        c => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        }[c])
+      );
+    }
+
+    function updateCandleCountdown() {
+      if (!candleCloseAt) {
+        $('candle-countdown').textContent = '--:--';
+        return;
+      }
+
+      const remain = Math.max(
+        0,
+        candleCloseAt - Math.floor(Date.now() / 1000)
+      );
+
+      $('candle-countdown').textContent =
+        String(Math.floor(remain / 60)).padStart(2, '0') +
+        ':' +
+        String(remain % 60).padStart(2, '0');
+    }
+
+    async function refreshScan() {
+      try {
+        const s = await api('/scan/state');
+
+        scanning = s.running === true;
+        robotPaused = s.paused === true;
+        robotActive = s.auto_trade === true;
+
+        updateScanUI();
+        updateRobotUI();
+
+        candleCloseAt = Number(s.candle_close_ts || 0);
+
+        $('candle-countdown-note').textContent =
+          candleCloseAt
+            ? 'Fechamento estimado da vela ' +
+              (s.timeframe || $('timeframe').value) +
+              ' · horário do servidor'
+            : 'Inicie o scanner para sincronizar a contagem.';
+
+        updateCandleCountdown();
+
+        const editingConfig =
+          configDirty ||
+          configSaving ||
+          configFields.some(
+            id => $(id) === document.activeElement
+          );
+
+        if (!editingConfig) {
+          $('timeframe').value =
+            s.timeframe || $('timeframe').value;
+
+          $('confidence').value =
+            s.min_confidence ?? $('confidence').value;
+
+          $('confidence-label').textContent =
+            $('confidence').value + '%';
+
+          $('robot-amount').value =
+            s.amount ?? $('robot-amount').value;
+
+          $('target-gain').value =
+            s.target_gain ?? 0;
+
+          $('max-loss').value =
+            s.max_loss ?? 0;
+        }
+
+        $('daily-profit').textContent =
+          fmt(s.daily_profit ?? 0, 2);
+
+        $('risk-status').textContent =
+          s.risk_halted ? 'BLOQUEADO' : 'Normal';
+
+        $('risk-status').className =
+          'block text-base mt-1 ' +
+          (
+            s.risk_halted
+              ? 'text-rose-300'
+              : 'text-emerald-300'
+          );
+
+        $('robot-status-note').textContent =
+          s.risk_reason ||
+          s.message ||
+          'Proteção diária ativa conforme configuração.';
+
+        $('scan-message').textContent =
+          s.message ||
+          (
+            scanning
+              ? 'Scanner ativo no servidor.'
+              : 'Scanner parado.'
+          );
+
+        const ranking = normalizeRanking(s);
+        const counts = s.asset_counts || {};
+
+        $('market-counts').textContent =
+          `Mercado Aberto: ${counts.open ?? ranking.filter(x => getMarketType(x) === 'open').length} · OTC: ${counts.otc ?? ranking.filter(x => getMarketType(x) === 'otc').length}`;
+
+        renderRanking(ranking);
+
+        if (
+          s.best &&
+          typeof s.best === 'object' &&
+          marketMatchesFilter(s.best)
+        ) {
+          selectedSignal = s.best;
+          selectedAsset = getAsset(s.best);
+          renderHero(s.best);
+        }
+
+        $('api-dot').className = 'dot ok';
+        $('api-status').textContent = 'API conectada';
+
+      } catch (err) {
+        $('api-dot').className = 'dot bad';
+        $('api-status').textContent = 'API indisponível';
+        $('scan-message').textContent = err.message;
+      }
+    }
+
+    async function refreshChart() {
+      if (!selectedAsset || selectedAsset === '—') {
+        return;
+      }
+
+      try {
+        const type = selectedSignal
+          ? getMarketType(selectedSignal)
+          : (
+              selectedAsset.toUpperCase().includes('OTC')
+                ? 'otc'
+                : 'open'
+            );
+
+        const data = await api(
+          '/chart?asset=' +
+          encodeURIComponent(selectedAsset) +
+          '&market_type=' +
+          encodeURIComponent(type)
+        );
+
+        const candles = Array.isArray(data.candles)
+          ? data.candles
+          : [];
+
+        const c = candles[candles.length - 1];
+
+        $('chart-source').textContent =
+          selectedAsset +
+          ' · ' +
+          marketLabel(data.market_type || type) +
+          ' · ' +
+          (data.timeframe || $('timeframe').value);
+
+        if (!c) {
+          $('chart-summary').textContent =
+            'A API não retornou candles para este ativo.';
+          return;
+        }
+
+        $('hero-price').textContent = fmt(c.close, 5);
+        $('hero-candle-time').textContent = dateFmt(c.ts);
+
+        $('c-open').textContent = fmt(c.open, 5);
+        $('c-high').textContent = fmt(c.high, 5);
+        $('c-low').textContent = fmt(c.low, 5);
+
+        $('chart-summary').textContent =
+          `${candles.length} candles recebidos. Fechamento mais recente: ${fmt(c.close, 5)}. MA9: ${last(data.ma9)} · MA21: ${last(data.ma21)}.`;
+
+      } catch (err) {
+        $('chart-summary').textContent =
+          'Falha ao consultar candles: ' + err.message;
+      }
+    }
+
+    function last(arr) {
+      if (!Array.isArray(arr) || !arr.length) {
+        return '—';
+      }
+
+      const v = arr[arr.length - 1];
+
+      return fmt(
+        typeof v === 'object' ? v.value : v,
+        5
+      );
+    }
+
+    function tradeExecutionLabel(item) {
+      const trade = item?.trade || {};
+      const status = String(
+        trade.status || ''
+      ).toUpperCase();
+
+      const orderId = trade.order_id;
+
+      if (
+        orderId !== undefined &&
+        orderId !== null &&
+        String(orderId).trim() !== ''
+      ) {
+        return `${status || 'ABERTA'} · #${String(orderId)}`;
+      }
+
+      if (status === 'ERRO') {
+        return `ERRO · ${String(trade.error || 'falha ao enviar')}`;
+      }
+
+      if (status === 'ABERTA') {
+        return 'ABERTA · ID não retornado';
+      }
+
+      if (status === 'FECHADA') {
+        return 'FECHADA · ID não retornado';
+      }
+
+      return 'SEM ORDEM';
+    }
+
+    function resultClass(value) {
+      const result = String(
+        value || 'PENDENTE'
+      ).toUpperCase();
+
+      if (
+        result === 'WIN' ||
+        result === 'WON' ||
+        result === 'GAIN'
+      ) {
+        return 'text-emerald-300';
+      }
+
+      if (
+        result === 'LOSS' ||
+        result === 'LOST'
+      ) {
+        return 'text-rose-300';
+      }
+
+      return 'text-amber-200';
+    }
+
+    async function refreshHistory() {
+      try {
+        const data = await api('/signals/history?limit=50');
+
+        const items = Array.isArray(data.items)
+          ? data.items
+          : [];
+
+        $('history-stats').textContent = data.stats
+          ? `${data.stats.wins ?? 0} vitórias · ${data.stats.losses ?? 0} perdas · ${fmt(data.stats.winrate ?? 0, 1)}% acerto · lucro ${fmt(data.stats.profit ?? 0, 2)}`
+          : '';
+
+        if (!items.length) {
+          $('history-body').innerHTML =
+            '<tr><td colspan="7" class="skeleton">Ainda não há sinais registrados no servidor.</td></tr>';
+
+          return;
+        }
+
+        $('history-body').innerHTML = items.map(x => {
+          const result = String(
+            x.result ?? x.status ?? 'PENDENTE'
+          ).toUpperCase();
+
+          const execution = tradeExecutionLabel(x);
+          const profit = x.profit ?? x.trade?.profit;
+
+          return `
+            <tr>
+              <td>
+                ${escapeHtml(dateFmt(
+                  x.ts ??
+                  x.created_at ??
+                  x.timestamp ??
+                  x.time
+                ))}
+              </td>
+
+              <td>${escapeHtml(getAsset(x))}</td>
+
+              <td>
+                ${escapeHtml(x.direction ?? x.action ?? '—')}
+              </td>
+
+              <td>
+                ${x.confidence == null
+                  ? '—'
+                  : escapeHtml(x.confidence) + '%'}
+              </td>
+
+              <td class="${resultClass(result)}">
+                ${escapeHtml(result)}
+              </td>
+
+              <td>${escapeHtml(execution)}</td>
+
+              <td>
+                ${profit == null
+                  ? '—'
+                  : escapeHtml(fmt(profit, 2))}
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+      } catch (err) {
+        $('history-body').innerHTML =
+          `<tr><td colspan="7" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function updateRobotUI() {
+      $('robot-start').disabled =
+        !brokerConnected || robotActive;
+
+      $('robot-pause').disabled = !scanning;
+
+      $('robot-pause').textContent =
+        robotPaused ? 'Retomar robô' : 'Pausar robô';
+
+      $('robot-stop').disabled = !robotActive;
+      $('robot-reset').disabled = !authenticated;
+
+      $('robot-status-note').textContent =
+        robotActive
+          ? (
+              robotPaused
+                ? 'Robô pausado; sinais pendentes continuam sendo acompanhados.'
+                : 'Robô automático ativo.'
+            )
+          : 'Ordens automáticas desativadas; scanner analítico pode continuar ativo.';
+    }
+
+    $('robot-start').addEventListener('click', async () => {
+      try {
+        const cfg = {
+          auto_trade: true,
+          amount: Number($('robot-amount').value),
+          target_gain: Number($('target-gain').value),
+          max_loss: Number($('max-loss').value)
+        };
+
+        const r = scanning
+          ? await api('/robot/start', {
+              method: 'POST',
+              body: JSON.stringify(cfg)
+            })
+          : await api('/scan/start', {
+              method: 'POST',
+              body: JSON.stringify({
+                ...cfg,
+                timeframe: $('timeframe').value,
+                min_confidence: Number($('confidence').value)
+              })
+            });
+
+        robotActive = true;
+        robotPaused = false;
+
+        $('scan-message').textContent = r.message;
+
+        toast(r.message || 'Robô ativado pelo servidor.');
+
+        await refreshScan();
+
+      } catch (e) {
+        toast(e.message);
+        $('scan-message').textContent = e.message;
+      }
+    });
+
+    $('robot-pause').addEventListener('click', async () => {
+      try {
+        const r = await api('/robot/pause', {
+          method: 'POST'
+        });
+
+        robotPaused = r.paused;
+        $('scan-message').textContent = r.message;
+
+        await refreshScan();
+
+      } catch (e) {
+        toast(e.message);
+      }
+    });
+
+    $('robot-stop').addEventListener('click', async () => {
+      try {
+        const r = await api('/robot/stop', {
+          method: 'POST'
+        });
+
+        robotActive = false;
+        robotPaused = false;
+
+        $('scan-message').textContent = r.message;
+
+        await refreshScan();
+
+      } catch (e) {
+        toast(e.message);
+      }
+    });
+
+    $('robot-reset').addEventListener('click', async () => {
+      if (
+        !confirm(
+          'Criar uma nova sessão e zerar somente o placar atual? O arquivo anterior será preservado.'
+        )
+      ) {
+        return;
+      }
+
+      try {
+        const r = await api('/robot/reset', {
+          method: 'POST'
+        });
+
+        toast(r.message);
+
+        await Promise.all([
+          refreshScan(),
+          refreshHistory(),
+          refreshArchive()
+        ]);
+
+      } catch (e) {
+        toast(e.message);
+      }
+    });
+
+    async function refreshArchive() {
+      try {
+        const r = await api('/signals/sessions?limit=100');
+
+        const a = Array.isArray(r.sessions)
+          ? r.sessions
+          : [];
+
+        $('archive-body').innerHTML = a.length
+          ? a.map(x => `
+              <tr>
+                <td>
+                  ${escapeHtml(dateFmt(
+                    x.session_started_at ||
+                    x.first_signal_at
+                  ))}
+                </td>
+
+                <td>${x.signals ?? 0}</td>
+
+                <td class="text-emerald-300">
+                  ${x.wins ?? 0}
+                </td>
+
+                <td class="text-rose-300">
+                  ${x.losses ?? 0}
+                </td>
+
+                <td>${fmt(x.winrate ?? 0, 1)}%</td>
+
+                <td title="${escapeHtml(x.session_id)}">
+                  ${escapeHtml(
+                    String(x.session_id || '').slice(0, 8)
+                  )}…
+                </td>
+              </tr>
+            `).join('')
+          : '<tr><td colspan="6" class="skeleton">Nenhuma sessão arquivada.</td></tr>';
+
+      } catch (e) {
+        $('archive-body').innerHTML =
+          `<tr><td colspan="6">${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    $('archive-refresh').addEventListener(
+      'click',
+      refreshArchive
+    );
+
+    async function searchArchive() {
+      const params = new URLSearchParams({
+        limit: '500'
+      });
+
+      const asset = $('archive-asset').value.trim();
+      const result = $('archive-result').value;
+      const from = $('archive-from').value;
+      const to = $('archive-to').value;
+
+      if (asset) params.set('asset', asset);
+      if (result) params.set('result', result);
+      if (from) params.set('date_from', from);
+      if (to) params.set('date_to', to);
+
+      try {
+        const r = await api(
+          '/signals/archive?' + params.toString()
+        );
+
+        const items = Array.isArray(r.items)
+          ? r.items
+          : [];
+
+        $('archive-trades-body').innerHTML = items.length
+          ? items.map(x => {
+              const res = String(
+                x.result || 'PENDENTE'
+              ).toUpperCase();
+
+              const profit = x.profit ?? x.trade?.profit;
+
+              return `
+                <tr>
+                  <td>${escapeHtml(dateFmt(x.ts))}</td>
+                  <td>${escapeHtml(getAsset(x))}</td>
+                  <td>${escapeHtml(x.direction || '—')}</td>
+
+                  <td>
+                    ${x.confidence == null
+                      ? '—'
+                      : escapeHtml(x.confidence) + '%'}
+                  </td>
+
+                  <td class="${resultClass(res)}">
+                    ${escapeHtml(res)}
+                  </td>
+
+                  <td>
+                    ${escapeHtml(tradeExecutionLabel(x))}
+                  </td>
+
+                  <td>
+                    ${profit == null
+                      ? '—'
+                      : escapeHtml(fmt(profit, 2))}
+                  </td>
+                </tr>
+              `;
+            }).join('')
+          : '<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>';
+
+      } catch (e) {
+        $('archive-trades-body').innerHTML =
+          `<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    $('archive-search').addEventListener(
+      'click',
+      searchArchive
+    );
+
+    async function refreshAll() {
+      await Promise.allSettled([
+        refreshBroker(),
+        refreshScan(),
+        refreshHistory(),
+        refreshArchive()
+      ]);
+    }
+
+    function startPolling() {
+      if (!authenticated) return;
+
+      stopPolling();
+
+      pollTimers = [
+        setInterval(updateCandleCountdown, 1000),
+        setInterval(refreshScan, 3000),
+        setInterval(refreshHistory, 10000),
+        setInterval(refreshBroker, 15000),
+        setInterval(() => {
+          if (selectedAsset) refreshChart();
+        }, 7000)
+      ];
+    }
+
+    function stopPolling() {
+      pollTimers.forEach(clearInterval);
+      pollTimers = [];
+    }
+
+    updateRobotUI();
+
+    checkAuth().then(ok => {
+      if (ok) {
+        refreshAll().then(startPolling);
+      }
+    });
+
+    if (window.lucide) {
+      lucide.createIcons();
+    }
+
+  })();
+  </script>
+
 </body>
 </html>
