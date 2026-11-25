@@ -1,11 +1,10 @@
-"""Purple Signal — direção por estrutura/Price Action, auxiliares e gestão de risco.
-O fluxo é uma estimativa OHLCV; não representa agressão bid/ask nem livro real.
-A análise de 1 minuto utiliza somente candles cujo fechamento esteja confirmado.
+"""Purple Signal — fluxo como direção principal, tendência e KDJ como confirmações.
+A leitura de fluxo é uma estimativa baseada em OHLCV (corpo, sombras e volume quando disponível),
+pois a integração atual não fornece agressão bid/ask nem livro de ofertas.
 """
 from __future__ import annotations
 
 from typing import Literal
-import time
 
 import numpy as np
 import pandas as pd
@@ -212,7 +211,7 @@ def _flow_diagnostics(
 
 
 def _flow_components(df: pd.DataFrame, window: int = 12) -> dict:
-    """Proxies auxiliares OHLCV; nunca decidem a direção principal."""
+    """Quatro proxies direcionais OHLCV, sem duplicar votos quando falta volume."""
     recent = df.tail(window).copy()
     spread = (recent.high - recent.low).replace(0, np.nan)
     body_pressure = (
@@ -622,123 +621,17 @@ def _pullback_analysis(
     }
 
 
-def _closed_one_minute_candles(candles: list[dict], now: float | None = None) -> tuple[list[dict], dict]:
-    """Retém candles fechados usando a cadência temporal observada (M1/M5/M15)."""
-    if not isinstance(candles, (list, tuple)) or not candles:
-        return [], {"ok": False, "reason": "SEM_CANDLES"}
-    now_ts = float(time.time() if now is None else now)
-    normalized = []
-    for candle in candles:
-        if not isinstance(candle, dict):
-            continue
-        raw_ts = candle.get("ts", candle.get("from"))
-        try:
-            ts = float(raw_ts)
-        except (TypeError, ValueError):
-            return [], {"ok": False, "reason": "TIMESTAMP_AUSENTE_OU_INVALIDO"}
-        if not np.isfinite(ts) or ts <= 0:
-            return [], {"ok": False, "reason": "TIMESTAMP_AUSENTE_OU_INVALIDO"}
-        if ts > 1_000_000_000_000:  # milissegundos -> segundos
-            ts /= 1000.0
-        item = dict(candle)
-        item["_candle_start_ts"] = ts
-        normalized.append(item)
-    if not normalized:
-        return [], {"ok": False, "reason": "SEM_CANDLES_VALIDOS"}
-    normalized.sort(key=lambda item: item["_candle_start_ts"])
-    unique = {item["_candle_start_ts"]: item for item in normalized}
-    ordered = [unique[key] for key in sorted(unique)]
-    starts = np.asarray([item["_candle_start_ts"] for item in ordered], dtype=float)
-    deltas = np.diff(starts)
-    deltas = deltas[deltas > 0]
-    observed_interval = float(np.median(deltas[-30:])) if len(deltas) else 60.0
-    supported_intervals = (60, 300, 900)
-    timeframe_seconds = min(supported_intervals, key=lambda value: abs(value - observed_interval))
-    if abs(timeframe_seconds - observed_interval) > max(3.0, timeframe_seconds * 0.10):
-        return [], {"ok": False, "reason": "INTERVALO_DOS_CANDLES_NAO_RECONHECIDO",
-                    "observed_interval_seconds": observed_interval}
-    closed = [item for item in ordered if item["_candle_start_ts"] + timeframe_seconds <= now_ts]
-    if not closed:
-        return [], {
-            "ok": False, "reason": "AGUARDANDO_FECHAMENTO_DO_CANDLE_1M",
-            "closed_count": 0,
-            "timeframe_seconds": timeframe_seconds,
-            "latest_candle_start": ordered[-1]["_candle_start_ts"],
-            "next_close_at": ordered[-1]["_candle_start_ts"] + timeframe_seconds,
-        }
-    latest_start = ordered[-1]["_candle_start_ts"]
-    latest_open_excluded = latest_start + timeframe_seconds > now_ts
-    for item in closed:
-        item.pop("_candle_start_ts", None)
-    return closed, {
-        "ok": True, "timeframe_seconds": timeframe_seconds, "closed_count": len(closed),
-        "latest_candle_start": latest_start,
-        "latest_was_open_and_excluded": bool(latest_open_excluded),
-        "last_closed_at": float(closed[-1].get("ts", closed[-1].get("from"))) + timeframe_seconds,
-    }
-
-
-def _divergence_analysis(
-    df: pd.DataFrame, rsi_series: pd.Series, macd_hist: pd.Series, atr_value: float
-) -> dict:
-    """Detecta divergências clássicas em pivôs confirmados; nunca veta sozinha."""
-    result = {"direction": "NEUTRO", "label": "NONE", "bullish": False,
-              "bearish": False, "rsi_confirmed": False, "macd_confirmed": False,
-              "strength": 0}
-    if len(df) < 20 or len(rsi_series) != len(df) or len(macd_hist) != len(df):
-        return result
-    highs = df.high.astype(float).to_numpy()
-    lows = df.low.astype(float).to_numpy()
-    rsi_values = rsi_series.astype(float).to_numpy()
-    macd_values = macd_hist.astype(float).to_numpy()
-    pivot_highs, pivot_lows = [], []
-    for idx in range(max(2, len(df) - 60), len(df) - 2):
-        if highs[idx] >= max(highs[idx-2:idx]) and highs[idx] > max(highs[idx+1:idx+3]):
-            pivot_highs.append(idx)
-        if lows[idx] <= min(lows[idx-2:idx]) and lows[idx] < min(lows[idx+1:idx+3]):
-            pivot_lows.append(idx)
-    tolerance = max(float(atr_value) * 0.05, abs(float(df.close.iloc[-1])) * 0.00001)
-    if len(pivot_lows) >= 2:
-        a, b = pivot_lows[-2:]
-        lower_low = lows[b] < lows[a] - tolerance
-        rsi_higher = rsi_values[b] > rsi_values[a] + 1.0
-        macd_higher = macd_values[b] > macd_values[a]
-        if lower_low and (rsi_higher or macd_higher):
-            result.update({"direction": "CALL", "label": "BULLISH_DIVERGENCE",
-                           "bullish": True, "rsi_confirmed": bool(rsi_higher),
-                           "macd_confirmed": bool(macd_higher),
-                           "strength": 2 if rsi_higher and macd_higher else 1})
-    if len(pivot_highs) >= 2:
-        a, b = pivot_highs[-2:]
-        higher_high = highs[b] > highs[a] + tolerance
-        rsi_lower = rsi_values[b] < rsi_values[a] - 1.0
-        macd_lower = macd_values[b] < macd_values[a]
-        if higher_high and (rsi_lower or macd_lower):
-            if result["bullish"]:
-                result.update({"direction": "NEUTRO", "label": "CONFLICTING_DIVERGENCES", "strength": 0})
-            else:
-                result.update({"direction": "PUT", "label": "BEARISH_DIVERGENCE",
-                               "bearish": True, "rsi_confirmed": bool(rsi_lower),
-                               "macd_confirmed": bool(macd_lower),
-                               "strength": 2 if rsi_lower and macd_lower else 1})
-    return result
-
 Direction = Literal["CALL", "PUT", "NEUTRO"]
 
 
-def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> dict:
-    """Analisa candles fechados; brain_profile é aceito para compatibilidade com server_v3."""
-    closed_candles, candle_clock = _closed_one_minute_candles(candles)
-    if not candle_clock.get("ok"):
-        return {"ready": False, "reason": candle_clock.get("reason", "FECHAMENTO_1M_NAO_CONFIRMADO"),
-                "candle_clock": candle_clock}
-    # EMA100 exige aquecimento técnico; não é um filtro de entrada.
-    if len(closed_candles) < 100:
-        return {"ready": False,
-                "reason": "Candles fechados insuficientes para EMA100 (mínimo técnico: 100)",
-                "candle_clock": candle_clock}
+def analyze_candles(candles: list[dict]) -> dict:
+    """Analisa velas fechadas mantendo assinatura e contrato do servidor."""
+    # EMA100 precisa de 100 candles para ter sua janela completa.
+    # Esse requisito é de aquecimento do indicador, não um filtro de entrada.
+    if not isinstance(candles, (list, tuple)) or len(candles) < 100:
+        return {"ready": False, "reason": "Candles insuficientes para EMA 100 (mínimo técnico: 100)"}
 
-    df = pd.DataFrame(closed_candles).copy()
+    df = pd.DataFrame(candles).copy()
     for col in ("open", "high", "low", "close"):
         if col not in df:
             return {"ready": False, "reason": f"Campo obrigatório ausente: {col}"}
@@ -758,9 +651,7 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
     df = df.loc[valid].reset_index(drop=True)
 
     if len(df) < 100:
-        return {"ready": False,
-                "reason": "Candles fechados válidos insuficientes para EMA100 (mínimo técnico: 100)",
-                "candle_clock": candle_clock}
+        return {"ready": False, "reason": "Candles válidos insuficientes para EMA 100 (mínimo técnico: 100)"}
 
     close, high, low = df.close, df.high, df.low
     ma9, ma21, ma100 = ema(close, 9), ema(close, 21), ema(close, 100)
@@ -779,8 +670,7 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
     dp, dm = float(plus_di.iloc[i]), float(minus_di.iloc[i])
     rsi_value = float(rsi14.iloc[i])
 
-    # CAMADA 1 — direção principal: estrutura + Price Action + tendência de preço.
-    # Fluxo, médias e osciladores são auxiliares e não decidem a direção.
+    # Direção integrada: tendência independente + proxies disponíveis de fluxo.
     flow_data = _flow_components(df)
     trend_data = _trend_component(close, atr_value)
     morphology_data = _three_candle_morphology(df)
@@ -789,33 +679,36 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
     trend_direction = trend_data["direction"]
     flow = flow_data["pressure"]
     flow_strength = flow_data["strength"]
-    structure_data = _market_structure_analysis(df)
-    divergence_data = _divergence_analysis(df, rsi14, macd_hist, atr_value)
 
-    primary_components = [
-        (structure_data["direction"], 0.45),
-        (morphology_direction, 0.30),
-        (trend_direction, 0.25),
-    ]
-    primary_score = sum(
-        weight * (1 if component_direction == "CALL" else -1 if component_direction == "PUT" else 0)
-        for component_direction, weight in primary_components
-    )
-    # Divergência relevante reforça ou reduz a leitura, mas nunca a veta sozinha.
-    if divergence_data["direction"] in ("CALL", "PUT"):
-        primary_score += 0.10 if divergence_data["direction"] == "CALL" else -0.10
-    primary_score = float(np.clip(primary_score, -1.0, 1.0))
-    direction: Direction = (
-        "CALL" if primary_score > 0 else
-        "PUT" if primary_score < 0 else
-        "NEUTRO"
-    )
-    direction_votes = [component_direction for component_direction, _ in primary_components]
+    # Cada proxy de fluxo entra uma única vez na votação.
+    direction_votes = [trend_direction] + flow_data["directional_votes"]
     direction_bullish_votes = direction_votes.count("CALL")
     direction_bearish_votes = direction_votes.count("PUT")
-    direction_strength = min(100, int(abs(primary_score) * 100))
+    direction_majority = len(direction_votes) // 2 + 1
 
-    # CAMADA 2 — EMAs são confluências auxiliares, nunca pré-requisito direcional.
+    direction: Direction = (
+        "CALL" if direction_bullish_votes >= direction_majority else
+        "PUT" if direction_bearish_votes >= direction_majority else
+        "NEUTRO"
+    )
+    # A morfologia dos três candles é confirmação complementar, não veto
+    # absoluto. A direção principal vem da maioria entre tendência e fluxo.
+    # Divergência será penalizada na pontuação, sem apagar automaticamente
+    # uma leitura válida dos demais componentes.
+
+    direction_strength = min(
+        100,
+        int(
+            abs(
+                sum(
+                    1 if v == "CALL" else -1 if v == "PUT" else 0
+                    for v in direction_votes
+                ) / len(direction_votes)
+            ) * 100
+        ),
+    )
+
+    # EMAs 9 e 21 confirmam a direção; ambas precisam inclinar no mesmo sentido.
     ma9_previous = float(ma9.iloc[i - 3])
     ma21_previous = float(ma21.iloc[i - 3])
     ma_bull = (
@@ -830,7 +723,7 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
     )
     ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
 
-    # EMA100 é referência auxiliar de contexto, não filtro obrigatório.
+    # EMA 100 define o regime direcional e será obrigatória no filtro de entrada.
     ema100_previous = float(ma100.iloc[i - 3])
     ema100_direction = (
         "CALL" if price > ma100_value and ma100_value > ema100_previous else
@@ -989,29 +882,28 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
         if mean_reversion_confirmations >= 2:
             mean_reversion_direction = "PUT"
 
-    signal_mode = "STRUCTURE_PRICE_ACTION"
+    signal_mode = "FLOW"
     if mean_reversion_direction != "NEUTRO":
         # Reversão pode contrariar a tendência principal, mas não um fluxo
         # estimado fortemente oposto. Fluxo OHLCV fraco/neutro não veta o setup.
         reversal_sign = 1.0 if mean_reversion_direction == "CALL" else -1.0
         strong_opposing_flow = flow * reversal_sign <= -0.35
-        divergence_supports_reversal = divergence_data["direction"] == mean_reversion_direction
-        price_action_supports_reversal = morphology_direction == mean_reversion_direction
-        structure_opposes_reversal = (
-            structure_data["direction"] in ("CALL", "PUT")
-            and structure_data["direction"] != mean_reversion_direction
-        )
         if (
-            (direction == "NEUTRO" or direction == mean_reversion_direction
-             or not structure_opposes_reversal or divergence_supports_reversal
-             or price_action_supports_reversal)
-            and (not strong_opposing_flow or divergence_supports_reversal or price_action_supports_reversal)
+            morphology_direction == mean_reversion_direction
+            and morphology_data["valid"]
+            and (
+                direction == "NEUTRO"
+                or direction == mean_reversion_direction
+                or not strong_opposing_flow
+            )
         ):
             direction = mean_reversion_direction
             signal_mode = "MEAN_REVERSION"
             confirm_count = mean_reversion_confirmations
 
-    # Confluências auxiliares pontuam a leitura; não exigimos número fixo de votos.
+    # Indicadores confirmam, mas não podem trocar CALL por PUT ou vice-versa.
+    if direction != "NEUTRO" and confirm_count < 2:
+        direction = "NEUTRO"
 
     diagnostics = _flow_diagnostics(df, atr_value)
     last_candle_direction = (
@@ -1028,6 +920,7 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
     structure_bonus, _private_structure_tag = _hidden_structure_confluence(
         df, direction, atr_value
     )
+    structure_data = _market_structure_analysis(df)
     structure_directional_bonus = (
         5 if direction != "NEUTRO" and structure_data["direction"] == direction else
         -5 if direction != "NEUTRO" and structure_data["direction"] in ("CALL", "PUT") else
@@ -1037,74 +930,112 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
         df, trend_direction, ma9, ma21, atr_value
     )
     brain_score = 0
+    if direction != "NEUTRO":
+        brain_score = (
+            35
+            + min(20, flow_strength // 3)
+            + min(25, confirm_count * 5)
+        )
+        brain_score += (
+            10 if adx_value >= 25 else
+            5 if adx_value >= 20 else
+            0
+        )
+        brain_score += structure_bonus + structure_directional_bonus
+        if morphology_data["valid"] and morphology_direction == direction:
+            brain_score += 4
+        elif morphology_direction in ("CALL", "PUT") and morphology_direction != direction:
+            brain_score -= 5
+        else:
+            brain_score -= 2
+        if pullback_data["detected"] and pullback_data["direction"] == direction:
+            brain_score += 5
+            if not fib_confirmation:
+                confirm_count += 1
+        brain_score -= 15 if absorption_conflict else 0
+        brain_score -= 10 if diagnostics["absorption_detected"] else 0
+        if signal_mode == "MEAN_REVERSION":
+            brain_score += 3
+        brain_score = max(0, min(97, brain_score))
+
+        if absorption_conflict and brain_score < 65:
+            direction = "NEUTRO"
+
+    # Filtro de qualidade: contexto e tendência/EMA100 pesam na nota,
+    # mas deixam de ser vetos absolutos. Só dados/condições realmente ruins
+    # bloqueiam a entrada. Mantém a assinatura e os campos esperados pelo servidor.
     entry_filter_reasons = []
     entry_context_warnings = []
-    auxiliary_score = 0
-    if direction != "NEUTRO":
+    if direction == "NEUTRO":
+        entry_filter_reasons.append("DIRECAO_NAO_CONFIRMADA")
+        if not morphology_data["valid"]:
+            entry_filter_reasons.append("MORFOLOGIA_3_CANDLES_INVALIDA")
+        elif morphology_direction == "NEUTRO":
+            entry_filter_reasons.append("MORFOLOGIA_3_CANDLES_INDECISA")
+        elif morphology_direction not in ("CALL", "PUT"):
+            entry_filter_reasons.append("MORFOLOGIA_3_CANDLES_SEM_CONFIRMACAO")
+    else:
         direction_sign = 1.0 if direction == "CALL" else -1.0
-        # CAMADA 2: indicadores, fluxo e contexto ajustam a qualidade sem exigir unanimidade.
-        auxiliary_score += 5 if (ma_bull if direction == "CALL" else ma_bear) else 0
-        auxiliary_score += 4 if (ema100_bull if direction == "CALL" else ema100_bear) else 0
-        auxiliary_score += 5 if (macd_bull if direction == "CALL" else macd_bear) else 0
-        auxiliary_score += 4 if (rsi_bull if direction == "CALL" else rsi_bear) else 0
-        auxiliary_score += 3 if (di_bull if direction == "CALL" else di_bear) else 0
-        auxiliary_score += 3 if (kdj_bull if direction == "CALL" else kdj_bear) else 0
-        if flow * direction_sign > 0:
-            auxiliary_score += min(8, flow_strength // 8)
-        elif flow * direction_sign < -0.20:
-            auxiliary_score -= 5
-            entry_context_warnings.append("FLUXO_AUXILIAR_CONTRARIO")
-        elif flow_direction != direction:
-            entry_context_warnings.append("FLUXO_AUXILIAR_SEM_CONFLUENCIA")
 
-        if morphology_direction == direction:
-            auxiliary_score += 4
-        elif morphology_direction in ("CALL", "PUT"):
-            auxiliary_score -= 3
-            entry_context_warnings.append("PRICE_ACTION_CURTO_DIVERGENTE")
-        if divergence_data["direction"] == direction:
-            auxiliary_score += 7 if divergence_data["strength"] >= 2 else 4
-            entry_context_warnings.append("DIVERGENCIA_FAVORAVEL")
-        elif divergence_data["direction"] in ("CALL", "PUT"):
-            auxiliary_score -= 6
-            entry_context_warnings.append("DIVERGENCIA_CONTRARIA_REQUER_ATENCAO")
+        # Duas confirmações independentes continuam obrigatórias.
+        if confirm_count < 2:
+            entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES")
 
-        auxiliary_score += 6 if adx_value >= 25 else 3 if adx_value >= 20 else 0
-        if sideways:
-            auxiliary_score -= 3
-            entry_context_warnings.append("ADX_EM_FAIXA_LATERAL_CONTEXTO")
-        if trend_direction != direction:
-            auxiliary_score -= 4
-            entry_context_warnings.append("TENDENCIA_DIVERGENTE_AUXILIAR")
-        if ema100_direction != direction:
-            entry_context_warnings.append("EMA100_DIVERGENTE_AUXILIAR")
-        if pullback_data["detected"] and pullback_data["direction"] == direction:
-            auxiliary_score += 5
-        if fib_confirmation and fib_direction == direction:
-            auxiliary_score += 3
-        if diagnostics["absorption_detected"]:
-            auxiliary_score -= 3
-            entry_context_warnings.append("ABSORCAO_ESTIMADA_DETECTADA")
-        if absorption_conflict:
-            auxiliary_score -= 5
-            entry_context_warnings.append("POSSIVEL_CONFLITO_DE_ABSORCAO")
-
-        # A estrutura/Price Action domina a nota; auxiliares apenas ajustam.
-        brain_score = int(np.clip(48 + abs(primary_score) * 25 + auxiliary_score, 0, 97))
-
-        # CAMADA 3 — bloqueios operacionais/mercado realmente adversos.
-        # Limites financeiros e autorização de execução continuam no servidor.
+        # Proteções de volatilidade continuam como bloqueios rígidos.
         if volatility_too_low:
             entry_filter_reasons.append("VOLATILIDADE_BAIXA")
         if volatility_spike:
             entry_filter_reasons.append("PICO_DE_VOLATILIDADE")
 
-    if direction == "NEUTRO":
-        entry_filter_reasons.append("DIRECAO_PRIMARIA_INSUFICIENTE")
+        # ADX muito baixo continua bloqueado. Faixa lateral moderada exige
+        # confirmação/nota maiores, em vez de vetar qualquer oportunidade.
+        if adx_value < 10:
+            entry_filter_reasons.append("MERCADO_SEM_FORCA_MINIMA")
 
-    if entry_filter_reasons:
-        direction = "NEUTRO"
-        brain_score = 0
+        if signal_mode != "MEAN_REVERSION" and not pullback_data["detected"]:
+            entry_filter_reasons.append("PULLBACK_AGUARDANDO_RETORNO_EMA9_EMA21")
+
+        if signal_mode == "MEAN_REVERSION":
+            # A reversão não precisa estar alinhada à tendência/EMA100.
+            if trend_direction != direction:
+                entry_context_warnings.append("REVERSAO_CONTRA_TENDENCIA")
+            if ema100_direction != direction:
+                brain_score -= 5
+                entry_context_warnings.append("EMA100_CONTRARIA_A_REVERSAO")
+            if flow * direction_sign <= -0.35:
+                entry_filter_reasons.append("FLUXO_FORTE_CONTRA_REVERSAO")
+        else:
+            if trend_direction != direction:
+                brain_score -= 8
+                entry_context_warnings.append("TENDENCIA_DIVERGENTE_PENALIZADA")
+            if ema100_direction != direction:
+                brain_score -= 5
+                entry_context_warnings.append("EMA100_DIVERGENTE_PENALIZADA")
+            # A direção agregada pode ser válida mesmo se a maioria estrita
+            # dos proxies de fluxo estiver neutra. Só oposição forte pesa muito.
+            aligned_flow_pressure = flow * direction_sign
+            if aligned_flow_pressure <= -0.20:
+                brain_score -= 10
+                entry_context_warnings.append("FLUXO_CONTRARIO_PENALIZADO")
+            elif flow_direction != direction:
+                brain_score -= 3
+                entry_context_warnings.append("FLUXO_SEM_MAIORIA_DIRECIONAL")
+
+        if sideways:
+            brain_score -= 8
+            entry_context_warnings.append("ADX_EM_FAIXA_LATERAL")
+
+        brain_score = max(0, min(97, brain_score))
+        minimum_score = 58 if sideways else 52
+        minimum_confirms = 2
+        if confirm_count < minimum_confirms:
+            entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES_PARA_ADX")
+        if brain_score < minimum_score:
+            entry_filter_reasons.append("PONTUACAO_ABAIXO_DO_MINIMO")
+
+        if entry_filter_reasons:
+            direction = "NEUTRO"
+            brain_score = 0
 
     confidence = int(brain_score) if direction != "NEUTRO" else 0
 
@@ -1126,26 +1057,6 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
     )
 
     indicators = {
-        "decision_architecture": "ESTRUTURA_PRICE_ACTION_AUXILIARES_RISCO",
-        "primary_direction_score": round(primary_score, 3),
-        "primary_components": {
-            "market_structure": structure_data["direction"],
-            "price_action_3_candles": morphology_direction,
-            "price_trend": trend_direction,
-        },
-        "divergence_direction": divergence_data["direction"],
-        "divergence_label": divergence_data["label"],
-        "divergence_bullish": bool(divergence_data["bullish"]),
-        "divergence_bearish": bool(divergence_data["bearish"]),
-        "divergence_rsi_confirmed": bool(divergence_data["rsi_confirmed"]),
-        "divergence_macd_confirmed": bool(divergence_data["macd_confirmed"]),
-        "divergence_strength": int(divergence_data["strength"]),
-        "auxiliary_score": int(auxiliary_score),
-        "risk_layer_status": "BLOCKED" if entry_filter_reasons else "CLEAR_FOR_SERVER_RISK_CHECK",
-        "risk_layer_blockers": list(entry_filter_reasons),
-        "candle_timeframe_seconds": int(candle_clock.get("timeframe_seconds", 60)),
-        "candle_closed_count": int(candle_clock.get("closed_count", 0)),
-        "latest_open_candle_excluded": bool(candle_clock.get("latest_was_open_and_excluded", False)),
         "flow_direction": flow_direction,
         "flow_pressure": round(flow, 3),
         "flow_strength": flow_strength,
@@ -1273,6 +1184,5 @@ def analyze_candles(candles: list[dict], brain_profile: dict | None = None) -> d
         "direction": direction,
         "confidence": confidence,
         "price": price,
-        "candle_clock": candle_clock,
         "indicators": indicators,
     }
