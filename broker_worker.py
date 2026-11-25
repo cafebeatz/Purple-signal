@@ -157,20 +157,14 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
 
         stage = "carregamento dos ativos"
         started = time.monotonic()
-        active_asset_names = []
         try:
             logger.info("Iniciando carregamento dos ativos")
             info["assets"] = _open_assets(client)
-            active_asset_names = list(info["assets"])
-            info["assets_by_market"] = {
-                "open": [a for a in info["assets"] if "OTC" not in a.upper()],
-                "otc": [a for a in info["assets"] if "OTC" in a.upper()],
-            }
             _log_stage(
                 "Carregamento dos ativos concluído; "
                 f"total={len(info['assets'])}, "
-                f"mercado_aberto={len(info['assets_by_market']['open'])}, "
-                f"otc={len(info['assets_by_market']['otc'])}",
+                f"mercado_aberto={sum('OTC' not in a.upper() for a in info['assets'])}, "
+                f"otc={sum('OTC' in a.upper() for a in info['assets'])}",
                 started
             )
         except Exception:
@@ -206,8 +200,6 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
             if op == "candles_many":
                 out = {}
                 for asset in cmd["assets"]:
-                    if asset not in active_asset_names:
-                        continue
                     try:
                         c = _candles(client, asset, cmd["tf"], cmd["count"])
                         if c:
@@ -219,9 +211,6 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
             elif op == "balance":
                 conn.send({"ok": True, "balance": float(client.get_balance())})
             elif op == "buy":
-                if cmd.get("asset") not in active_asset_names:
-                    conn.send({"ok": False, "error": "Ativo não confirmado na lista atual da corretora"})
-                    continue
                 minutes = cmd["minutes"]
                 ok, order_id = client.buy(float(cmd["amount"]), cmd["asset"], cmd["action"], int(minutes))
                 if ok:
