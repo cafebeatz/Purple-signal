@@ -51,7 +51,7 @@ async def _recv(conn, timeout: float):
     if not ready:
         raise TimeoutError("Corretora não respondeu a tempo")
     return conn.recv()
-async def _call(session: BrokerSession, cmd: dict, timeout: float = 65.0) -> dict:
+async def _call(session: BrokerSession, cmd: dict, timeout: float = 45.0) -> dict:
     async with session.lock:
         if session.conn is None or session.proc is None or not session.proc.is_alive():
             raise ConnectionError("Conexão com a corretora perdida")
@@ -76,7 +76,7 @@ def _kill(session: BrokerSession) -> None:
 def _broker_name(broker: str) -> str:
     return "Polarium Broker" if broker == "polarium" else "IQ Option"
 def market_type_for_asset(asset: str) -> str:
-    """Classificação operacional: OTC pelo nome; demais ativos são mercado regular."""
+    """Classificação operacional: OTC + digital pelo nome; demais ativos são mercado regular."""
     return "otc" if "OTC" in str(asset).upper() else "open"
 
 
@@ -93,7 +93,7 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
         session.assets = list(DEFAULT_ASSETS)
         session.market_assets = split_assets_by_market(session.assets)
         session.connected = True
-        session.message = "Modo simulado escolhido pelo usuário (mercado aberto + OTC sintéticos)"
+        session.message = "Modo simulado escolhido pelo usuário (mercado aberto + OTC sintéticos + digital)"
         return session
     parent, child = _CTX.Pipe()
     proc = _CTX.Process(target=worker_main, args=(child, broker, email, password, account_type), daemon=True)
