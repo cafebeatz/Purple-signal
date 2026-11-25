@@ -51,7 +51,7 @@ def _patch_hosts(broker: str) -> None:
 
 
 def _open_assets(client) -> list[str]:
-    """Retorna ativos digital/binários/turbo habilitados, incluindo mercado aberto e otc."""
+    """Retorna ativos binários/digital habilitados, incluindo mercado aberto e otc."""
     from iqoptionapi.constants import ACTIVES
 
     data = client.get_all_init_v2() or {}
@@ -59,7 +59,7 @@ def _open_assets(client) -> list[str]:
     names: set[str] = set()
     rejected = 0
 
-    for kind in ("turbo", "binary"):
+    for kind in ("digital", "binary"):
         actives = (data.get(kind, {}) or {}).get("actives", {}) or {}
 
         for active in actives.values():
