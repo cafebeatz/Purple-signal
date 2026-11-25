@@ -626,9 +626,10 @@ Direction = Literal["CALL", "PUT", "NEUTRO"]
 
 def analyze_candles(candles: list[dict]) -> dict:
     """Analisa velas fechadas mantendo assinatura e contrato do servidor."""
-    # EMA 100 só é considerada válida com pelo menos 100 candles válidos.
+    # EMA100 precisa de 100 candles para ter sua janela completa.
+    # Esse requisito é de aquecimento do indicador, não um filtro de entrada.
     if not isinstance(candles, (list, tuple)) or len(candles) < 100:
-        return {"ready": False, "reason": "Candles insuficientes para EMA 100"}
+        return {"ready": False, "reason": "Candles insuficientes para EMA 100 (mínimo técnico: 100)"}
 
     df = pd.DataFrame(candles).copy()
     for col in ("open", "high", "low", "close"):
@@ -650,7 +651,7 @@ def analyze_candles(candles: list[dict]) -> dict:
     df = df.loc[valid].reset_index(drop=True)
 
     if len(df) < 100:
-        return {"ready": False, "reason": "Candles válidos insuficientes para EMA 100"}
+        return {"ready": False, "reason": "Candles válidos insuficientes para EMA 100 (mínimo técnico: 100)"}
 
     close, high, low = df.close, df.high, df.low
     ma9, ma21, ma100 = ema(close, 9), ema(close, 21), ema(close, 100)
@@ -690,12 +691,10 @@ def analyze_candles(candles: list[dict]) -> dict:
         "PUT" if direction_bearish_votes >= direction_majority else
         "NEUTRO"
     )
-    # Os três candles formam uma confirmação direcional independente e
-    # obrigatória: divergência ou indecisão mantém o sinal em NEUTRO.
-    if not morphology_data["valid"] or morphology_direction == "NEUTRO":
-        direction = "NEUTRO"
-    elif direction != morphology_direction:
-        direction = "NEUTRO"
+    # A morfologia dos três candles é confirmação complementar, não veto
+    # absoluto. A direção principal vem da maioria entre tendência e fluxo.
+    # Divergência será penalizada na pontuação, sem apagar automaticamente
+    # uma leitura válida dos demais componentes.
 
     direction_strength = min(
         100,
@@ -777,11 +776,11 @@ def analyze_candles(candles: list[dict]) -> dict:
 
     confirms_for = {
         "CALL": [
-            macd_bull, rsi_bull, di_bull, adx_confirms,
+            macd_bull, rsi_bull, di_bull,
             kdj_bull, ma_bull, ema100_bull,
         ],
         "PUT": [
-            macd_bear, rsi_bear, di_bear, adx_confirms,
+            macd_bear, rsi_bear, di_bear,
             kdj_bear, ma_bear, ema100_bear,
         ],
     }
@@ -943,6 +942,12 @@ def analyze_candles(candles: list[dict]) -> dict:
             0
         )
         brain_score += structure_bonus + structure_directional_bonus
+        if morphology_data["valid"] and morphology_direction == direction:
+            brain_score += 4
+        elif morphology_direction in ("CALL", "PUT") and morphology_direction != direction:
+            brain_score -= 5
+        else:
+            brain_score -= 2
         if pullback_data["detected"] and pullback_data["direction"] == direction:
             brain_score += 5
             if not fib_confirmation:
@@ -984,7 +989,7 @@ def analyze_candles(candles: list[dict]) -> dict:
 
         # ADX muito baixo continua bloqueado. Faixa lateral moderada exige
         # confirmação/nota maiores, em vez de vetar qualquer oportunidade.
-        if adx_value < 12:
+        if adx_value < 10:
             entry_filter_reasons.append("MERCADO_SEM_FORCA_MINIMA")
 
         if signal_mode != "MEAN_REVERSION" and not pullback_data["detected"]:
@@ -1021,8 +1026,8 @@ def analyze_candles(candles: list[dict]) -> dict:
             entry_context_warnings.append("ADX_EM_FAIXA_LATERAL")
 
         brain_score = max(0, min(97, brain_score))
-        minimum_score = 63 if sideways else 55
-        minimum_confirms = 3 if sideways else 2
+        minimum_score = 58 if sideways else 52
+        minimum_confirms = 2
         if confirm_count < minimum_confirms:
             entry_filter_reasons.append("CONFIRMACOES_INSUFICIENTES_PARA_ADX")
         if brain_score < minimum_score:
