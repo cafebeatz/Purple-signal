@@ -469,9 +469,9 @@ def _trend_component(
 Direction = Literal["CALL", "PUT", "NEUTRO"]
 
 # Limiares calibrados para reduzir falsos sinais de reversão em recuos às EMAs 9/21.
-MEAN_REVERSION_MIN_ATR = 1.65
-MEAN_REVERSION_MIN_WICK_RATIO = 0.35
-MEAN_REVERSION_MAX_OPPOSING_FLOW = 0.25
+MEAN_REVERSION_MIN_ATR = 1.0
+MEAN_REVERSION_MIN_WICK_RATIO = 0.20
+MEAN_REVERSION_MAX_OPPOSING_FLOW = 0.60
 
 
 def analyze_candles(candles: list[dict]) -> dict:
