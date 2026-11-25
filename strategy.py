@@ -901,6 +901,117 @@ def analyze_candles(candles: list[dict]) -> dict:
             signal_mode = "MEAN_REVERSION"
             confirm_count = mean_reversion_confirmations
 
+    # Confirmação especial de reversão após três candles consecutivos.
+    # Padrão: 3 candles na direção A, 4º contra A (alerta), 5º confirma
+    # a direção final. A regra é simétrica para CALL e PUT.
+    # Só é ativada quando o padrão exato aparece; os demais cenários seguem
+    # a lógica original da estratégia.
+    five_candle_confirmation = {
+        "active": False,
+        "confirmed": False,
+        "direction": "NEUTRO",
+        "reason": "PADRAO_NAO_DETECTADO",
+        "volume_confirmed": False,
+        "ema_confirmed": False,
+    }
+    if len(df) >= 5:
+        last_five = df.tail(5).reset_index(drop=True)
+        candle_dirs = [
+            "CALL" if float(row.close) > float(row.open) else
+            "PUT" if float(row.close) < float(row.open) else
+            "NEUTRO"
+            for row in last_five.itertuples()
+        ]
+        first_three = candle_dirs[:3]
+        reversal_pattern = (
+            first_three[0] in ("CALL", "PUT")
+            and first_three.count(first_three[0]) == 3
+            and candle_dirs[3] in ("CALL", "PUT")
+            and candle_dirs[3] != first_three[0]
+        )
+        if reversal_pattern:
+            five_candle_confirmation["active"] = True
+            base_direction = first_three[0]
+            final_direction = candle_dirs[4]
+            five_candle_confirmation["direction"] = final_direction
+
+            # A quinta vela precisa confirmar por corpo e por volume real
+            # recebido no OHLCV. Sem volume disponível, não há entrada neste
+            # padrão especial (não se inventa confirmação de volume).
+            recent_volumes = last_five["volume"].astype(float).clip(lower=0.0)
+            volume_available_five = bool(recent_volumes.sum() > 0)
+            last_volume = float(recent_volumes.iloc[-1])
+            reference_volume = float(recent_volumes.iloc[:4].median())
+            last_body = abs(
+                float(last_five.iloc[4]["close"]) - float(last_five.iloc[4]["open"])
+            )
+            last_range = max(
+                float(last_five.iloc[4]["high"]) - float(last_five.iloc[4]["low"]),
+                1e-12,
+            )
+            last_body_strength = last_body / last_range
+            volume_confirmed = bool(
+                volume_available_five
+                and last_volume > 0
+                and (reference_volume <= 0 or last_volume >= reference_volume * 0.75)
+                and last_body_strength >= 0.20
+            )
+
+            # EMA9/EMA21 são contexto de confirmação: exige preço do lado
+            # correto da EMA9 e pelo menos uma inclinação/alinhamento coerente.
+            ema9_rising = ma9_value > float(ma9.iloc[i - 1])
+            ema9_falling = ma9_value < float(ma9.iloc[i - 1])
+            ema_confirmed = bool(
+                (
+                    final_direction == "CALL"
+                    and price > ma9_value
+                    and (ema9_rising or ma9_value > ma21_value)
+                )
+                or (
+                    final_direction == "PUT"
+                    and price < ma9_value
+                    and (ema9_falling or ma9_value < ma21_value)
+                )
+            )
+            candle_confirmed = final_direction in ("CALL", "PUT")
+            confirmed = bool(candle_confirmed and volume_confirmed and ema_confirmed)
+
+            five_candle_confirmation.update({
+                "confirmed": confirmed,
+                "volume_confirmed": volume_confirmed,
+                "ema_confirmed": ema_confirmed,
+                "reason": (
+                    "CONFIRMADO"
+                    if confirmed
+                    else "VOLUME_AUSENTE_OU_FRACO"
+                    if not volume_confirmed
+                    else "EMA9_EMA21_NAO_CONFIRMAM"
+                    if not ema_confirmed
+                    else "QUINTA_VELA_SEM_DIRECAO"
+                ),
+                "base_direction": base_direction,
+                "candle_sequence": candle_dirs,
+                "last_volume": last_volume,
+                "reference_volume": reference_volume,
+            })
+
+            if confirmed:
+                # A direção final é a da quinta vela: pode confirmar a
+                # reversão (CALL após PUT ou PUT após CALL) ou retomar a
+                # direção original se a tentativa de reversão falhar.
+                direction = final_direction
+                signal_mode = (
+                    "FIVE_CANDLE_REVERSAL"
+                    if final_direction != base_direction
+                    else "FIVE_CANDLE_CONTINUATION"
+                )
+                confirm_count = sum(bool(x) for x in confirms_for[direction])
+            else:
+                # Não deixa o sinal normal abrir antes da quinta confirmação.
+                direction = "NEUTRO"
+                confirm_count = 0
+                signal_mode = "FIVE_CANDLE_WAIT"
+
     # Indicadores confirmam, mas não podem trocar CALL por PUT ou vice-versa.
     if direction != "NEUTRO" and confirm_count < 2:
         direction = "NEUTRO"
@@ -1111,6 +1222,7 @@ def analyze_candles(candles: list[dict]) -> dict:
         "atr_relative_ratio": round(atr_ratio, 3),
         "volatility_too_low": volatility_too_low,
         "volatility_spike": volatility_spike,
+        "five_candle_confirmation": dict(five_candle_confirmation),
         "entry_filter_passed": not bool(entry_filter_reasons),
         "entry_filter_reasons": entry_filter_reasons,
         "entry_context_warnings": entry_context_warnings,
