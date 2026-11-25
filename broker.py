@@ -51,7 +51,7 @@ async def _recv(conn, timeout: float):
     if not ready:
         raise TimeoutError("Corretora não respondeu a tempo")
     return conn.recv()
-async def _call(session: BrokerSession, cmd: dict, timeout: float = 45.0) -> dict:
+async def _call(session: BrokerSession, cmd: dict, timeout: float = 65.0) -> dict:
     async with session.lock:
         if session.conn is None or session.proc is None or not session.proc.is_alive():
             raise ConnectionError("Conexão com a corretora perdida")
