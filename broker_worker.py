@@ -51,7 +51,7 @@ def _patch_hosts(broker: str) -> None:
 
 
 def _open_assets(client) -> list[str]:
-    """Retorna ativos binários/turbo habilitados, incluindo mercado aberto e OTC."""
+    """Retorna ativos binários/turbo habilitados, incluindo mercado aberto e otc."""
     from iqoptionapi.constants import ACTIVES
 
     data = client.get_all_init_v2() or {}
@@ -87,7 +87,7 @@ def _open_assets(client) -> list[str]:
                 rejected += 1
 
     result = sorted(names)
-    open_count = sum("OTC" not in name.upper() for name in result)
+    open_count = sum("otc" not in name.upper() for name in result)
     otc_count = len(result) - open_count
     logger.info(
         "Ativos retornados pela API: total=%d, mercado_aberto=%d, otc=%d, "
