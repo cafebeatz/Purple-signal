@@ -45,7 +45,6 @@ from broker import (
     SIM_PAYOUT,
     TIMEFRAME_SECONDS,
     BrokerSession,
-    TradeConfirmationUnknown,
     market_type_for_asset,
     check_trade,
     connect_broker,
@@ -251,6 +250,7 @@ def _state(user_id: str) -> dict:
             "ranking": [],
             "candles": {},
             "candle_fetch_ts": {},
+            "analysis_cache": {},
             "scan_progress": {"total": 0, "fetched": 0, "analyzed": 0, "remaining": 0, "errors": 0},
             "last_signal_candle": {},
             "message": "Aguardando início do scanner",
@@ -312,6 +312,7 @@ def _start_new_session(state: dict, reason: str) -> None:
     state["session_started_at"] = iso_now()
     state["session_reason"] = reason
     state["last_signal_candle"] = {}
+    state["analysis_cache"] = {}
     state["best"] = None
     state["ranking"] = []
     state["message"] = reason
@@ -338,8 +339,10 @@ def _session_out(session: BrokerSession) -> dict:
 # Sinais, ordens e liquidação
 # ---------------------------------------------------------------------------
 
-def _analyze_last_three_closed(candles: list[dict]) -> dict:
-    """Confirma 2 de 3 análises e preserva candidatos que estejam em WAIT."""
+def _analyze_last_three_closed(
+    candles: list[dict], analysis_cache: Optional[dict] = None
+) -> dict:
+    """Confirma 2 de 3 análises; reutiliza janelas já calculadas sem mudar a regra."""
     if len(candles) < 102:
         return {
             "ready": False, "direction": "NEUTRO", "confidence": 0,
@@ -351,10 +354,20 @@ def _analyze_last_three_closed(candles: list[dict]) -> dict:
             },
         }
 
-    analyses = [
-        analyze_candles(candles[:end])
-        for end in (len(candles) - 2, len(candles) - 1, len(candles))
-    ]
+    cache = analysis_cache if analysis_cache is not None else {}
+    analyses = []
+    for end in (len(candles) - 2, len(candles) - 1, len(candles)):
+        window = candles[:end]
+        key = str(int(window[-1].get("ts", 0)))
+        cached = cache.get(key)
+        if cached is None:
+            cached = analyze_candles(window)
+            cache[key] = cached
+        analyses.append(cached)
+    # Limita memória por ativo; as três janelas mais recentes são suficientes.
+    if len(cache) > 6:
+        for old_key in sorted(cache, key=lambda k: int(k))[:-6]:
+            cache.pop(old_key, None)
 
     def candidate_of(analysis: dict) -> str:
         direction = str(analysis.get("direction", "NEUTRO")).upper()
@@ -500,8 +513,8 @@ async def _auto_trade(
     doc: dict,
     *,
     manual_confirmation: bool = False,
-) -> bool | None:
-    """Executa ordem; None indica que o envio ficou sem confirmação da corretora."""
+) -> bool:
+    """Executa ordem somente após autorização manual ou modo automático autenticado."""
     if not state.get("auto_trade") and not manual_confirmation:
         return False
     if state.get("paused"):
@@ -551,20 +564,6 @@ async def _auto_trade(
             f"{doc['direction']} {session.currency} {amount:.2f}"
         )
         return True
-    except TradeConfirmationUnknown as exc:
-        doc["trade"] = {
-            "order_id": None,
-            "amount": amount,
-            "status": "CONFIRMACAO_PENDENTE",
-            "confirmation_unknown": True,
-            "error": str(exc)[:300],
-            "profit": None,
-        }
-        state["message"] = (
-            "A corretora não confirmou o recebimento da ordem. "
-            "Confira o histórico da corretora antes de qualquer nova tentativa."
-        )
-        return None
     except ConnectionError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -663,7 +662,8 @@ async def _process_delayed_entries(user_id: str, state: dict, session: BrokerSes
         if latest_ts <= last_checked_ts:
             continue
 
-        analysis = _analyze_last_three_closed(candles)
+        analysis_cache = state.setdefault("analysis_cache", {}).setdefault(asset, {})
+        analysis = _analyze_last_three_closed(candles, analysis_cache)
         indicators = analysis.get("indicators") or {}
         final_status = str(indicators.get("final_entry_confirmation", "NO_CANDIDATE")).upper()
         final_passed = bool(indicators.get("final_entry_confirmation_passed"))
@@ -756,28 +756,15 @@ async def _process_delayed_entries(user_id: str, state: dict, session: BrokerSes
             )
             raise
 
-        if sent is None:
-            final_approval_status = "CONFIRMACAO_PENDENTE"
-            final_result = "PENDENTE"
-            final_settled_at = None
-        elif sent:
-            final_approval_status = "AUTOMATICO_ENVIADO"
-            final_result = "PENDENTE"
-            final_settled_at = None
-        else:
-            final_approval_status = "FALHA"
-            final_result = "FALHA"
-            final_settled_at = iso_now()
-
         await db.signals.update_one(
             {"id": doc["id"], "user_id": user_id, "approval_status": "EXECUTANDO_REAVALIACAO"},
             {"$set": {
                 "trade": doc.get("trade"),
-                "approval_status": final_approval_status,
-                "result": final_result,
+                "approval_status": "AUTOMATICO_ENVIADO" if sent else "FALHA",
+                "result": "PENDENTE" if sent else "FALHA",
                 "entry_review": review,
                 "expires_at": doc["expires_at"],
-                "settled_at": final_settled_at,
+                "settled_at": None if sent else iso_now(),
             }},
         )
 
@@ -942,86 +929,111 @@ async def _scan_loop(user_id: str) -> None:
             tf = "M1"
             state["timeframe"] = "M1"
             tf_seconds = TIMEFRAME_SECONDS["M1"]
-            now_ts = int(utc_now().timestamp())
             assets = list(session.assets)
+            # Prioriza primeiro os ativos que já lideravam o ranking anterior;
+            # o worker transmite cada resposta individual assim que fica pronta.
+            previous_order = {
+                item.get("asset"): idx
+                for idx, item in enumerate(state.get("ranking") or [])
+                if item.get("asset")
+            }
+            assets.sort(key=lambda asset: previous_order.get(asset, len(previous_order) + assets.index(asset)))
             progress = {
                 "total": len(assets), "fetched": 0, "analyzed": 0,
                 "remaining": len(assets), "errors": 0,
             }
             state["scan_progress"] = dict(progress)
 
-            ranking_results = []
-            signal_results = []
+            ranking_by_asset: dict[str, dict] = {}
+            signal_by_asset: dict[str, dict] = {}
             candle_cache = state.setdefault("candles", {})
             fetch_times = state.setdefault("candle_fetch_ts", {})
-            brain_profile = await _load_quantum_brain_profile(user_id)
+            analysis_caches = state.setdefault("analysis_cache", {})
 
-            # Worker isolado: comandos por lote, mantendo as chamadas IQ sequenciais.
-            batch_size = 10
-            for batch_start in range(0, len(assets), batch_size):
-                batch = assets[batch_start:batch_start + batch_size]
-                counts = {
-                    asset: _incremental_candle_count(fetch_times.get(asset), tf_seconds)
-                    for asset in batch
-                }
-                request_count = max(counts.values(), default=5)
-                try:
-                    batch_data = await get_candles_many(
-                        session, batch, tf, count=request_count
+            def publish_partial_state() -> None:
+                ranking_now = sorted(
+                    ranking_by_asset.values(),
+                    key=lambda item: (
+                        bool(item.get("signal_ready")),
+                        float(item.get("confidence") or 0),
+                        int(item.get("candle_ts") or 0),
+                    ),
+                    reverse=True,
+                )
+                signals_now = sorted(
+                    signal_by_asset.values(),
+                    key=lambda item: float(item.get("confidence") or 0),
+                    reverse=True,
+                )
+                state["ranking"] = ranking_now
+                state["best"] = signals_now[0] if signals_now else None
+                state["scan_progress"] = dict(progress)
+                # Timestamp indica atualização incremental, não fim do ciclo.
+                state["last_scan_ts"] = iso_now()
+
+            async def consume_asset(asset: str, incoming: list[dict]) -> None:
+                progress["fetched"] += 1
+                if not incoming:
+                    progress["errors"] += 1
+                else:
+                    fetched_at = utc_now().timestamp()
+                    fetch_times[asset] = fetched_at
+                    # Recalcula o relógio por resposta: um candle que fechou
+                    # durante a varredura não fica preso à hora do primeiro lote.
+                    now_for_asset = int(utc_now().timestamp())
+                    incoming_closed = []
+                    for candle in incoming:
+                        try:
+                            candle_ts = int(candle.get("ts", 0))
+                            if candle_ts > 0 and candle_ts + tf_seconds <= now_for_asset:
+                                incoming_closed.append(candle)
+                        except (TypeError, ValueError):
+                            continue
+                    candle_cache[asset] = _merge_candles(
+                        candle_cache.get(asset, []), incoming_closed, 120
                     )
-                except (ConnectionError, TimeoutError):
-                    raise
-                except Exception as batch_exc:  # noqa: BLE001
-                    logger.warning("Falha no lote de candles: %s", batch_exc)
-                    batch_data = {}
-                fetched_at = utc_now().timestamp()
-                progress["fetched"] += len(batch)
 
-                for asset in batch:
-                    incoming = batch_data.get(asset) or []
-                    if not incoming:
-                        progress["errors"] += 1
+                closed = candle_cache.get(asset, [])
+                if closed:
+                    cache_for_asset = analysis_caches.setdefault(asset, {})
+                    analysis = _analyze_last_three_closed(closed, cache_for_asset)
+                    direction = str(analysis.get("direction", "NEUTRO")).upper()
+                    is_ready = bool(analysis.get("ready"))
+                    is_confirmed = is_ready and direction in {"CALL", "PUT"}
+                    item = {
+                        "asset": asset,
+                        "market_type": market_type_for_asset(asset),
+                        "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
+                        "candle_ts": int(closed[-1]["ts"]),
+                        "confirmation_candle_timestamps": [int(c.get("ts", 0)) for c in closed[-3:]],
+                        "signal_ready": is_confirmed,
+                        "status": (
+                            "AGUARDANDO_CONFIRMACAO_FINAL" if is_confirmed and analysis.get("pending_final_confirmation")
+                            else "CONFIRMADO" if is_confirmed
+                            else "AGUARDANDO_CONFIRMACAO" if is_ready
+                            else "AGUARDANDO_DADOS"
+                        ),
+                        **analysis,
+                    }
+                    ranking_by_asset[asset] = item
+                    if is_confirmed:
+                        signal_by_asset[asset] = item
                     else:
-                        fetch_times[asset] = fetched_at
-                        incoming_closed = [
-                            c for c in incoming
-                            if int(c.get("ts", 0)) + tf_seconds <= now_ts
-                        ]
-                        candle_cache[asset] = _merge_candles(
-                            candle_cache.get(asset, []), incoming_closed, 120
-                        )
+                        signal_by_asset.pop(asset, None)
 
-                    closed = candle_cache.get(asset, [])
-                    if closed:
-                        analysis = _analyze_last_three_closed(closed)
-                        direction = str(analysis.get("direction", "NEUTRO")).upper()
-                        is_ready = bool(analysis.get("ready"))
-                        is_confirmed = is_ready and direction in {"CALL", "PUT"}
-                        item = {
-                            "asset": asset,
-                            "market_type": market_type_for_asset(asset),
-                            "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
-                            "candle_ts": int(closed[-1]["ts"]),
-                            "confirmation_candle_timestamps": [int(c.get("ts", 0)) for c in closed[-3:]],
-                            "signal_ready": is_confirmed,
-                            "status": (
-                                "AGUARDANDO_CONFIRMACAO_FINAL" if is_confirmed and analysis.get("pending_final_confirmation")
-                                else "CONFIRMADO" if is_confirmed
-                                else "AGUARDANDO_CONFIRMACAO" if is_ready
-                                else "AGUARDANDO_DADOS"
-                            ),
-                            **analysis,
-                        }
-                        ranking_results.append(item)
-                        if is_confirmed:
-                            signal_results.append(item)
+                progress["analyzed"] += 1
+                progress["remaining"] = max(0, progress["total"] - progress["analyzed"])
+                publish_partial_state()
 
-                    progress["analyzed"] += 1
-                    progress["remaining"] = max(0, progress["total"] - progress["analyzed"])
-                    state["scan_progress"] = dict(progress)
+            # Uma única solicitação mantém a sessão da corretora serializada,
+            # mas os resultados chegam e são analisados individualmente.
+            await get_candles_many(
+                session, assets, tf, count=120, on_asset=consume_asset
+            )
 
             state["candles"] = candle_cache
-            ranking_results.sort(
+            ranking_results = sorted(
+                ranking_by_asset.values(),
                 key=lambda item: (
                     bool(item.get("signal_ready")),
                     float(item.get("confidence") or 0),
@@ -1029,20 +1041,12 @@ async def _scan_loop(user_id: str) -> None:
                 ),
                 reverse=True,
             )
-            signal_results.sort(
+            signal_results = sorted(
+                signal_by_asset.values(),
                 key=lambda item: float(item.get("confidence") or 0),
                 reverse=True,
             )
-            # Todos os ativos analisados ficam disponíveis no ranking.
-            state["ranking"] = sorted(
-                ranking_results,
-                key=lambda item: (
-                    bool(item.get("signal_ready")),
-                    float(item.get("confidence") or 0),
-                    int(item.get("candle_ts") or 0),
-                ),
-                reverse=True,
-            )
+            state["ranking"] = ranking_results
             state["last_scan_ts"] = iso_now()
             state["best"] = signal_results[0] if signal_results else None
 
@@ -1657,25 +1661,14 @@ async def confirm_signal(signal_id: str, user=Depends(get_current_user)):
     })
     executed = await _auto_trade(user_id, state, session, doc, manual_confirmation=True)
     trade = doc.get("trade") or {"status": "BLOQUEADA", "order_id": None}
-    if executed is None:
-        approval_status = "CONFIRMACAO_PENDENTE"
-        result_status = "PENDENTE"
-    elif executed and trade.get("order_id"):
-        approval_status = "CONFIRMADO"
-        result_status = "PENDENTE"
-    else:
-        approval_status = "FALHA"
-        result_status = "FALHA"
+    approval_status = "CONFIRMADO" if executed and trade.get("order_id") else "FALHA"
     await db.signals.update_one(
         {"id": signal_id, "user_id": user_id, "approval_status": "EXECUTANDO"},
         {"$set": {"trade": trade, "direction": doc.get("direction"), "price": doc.get("price"),
                   "entry_review": doc.get("entry_review"), "approval_status": approval_status,
-                  "result": result_status,
+                  "result": "PENDENTE" if approval_status == "CONFIRMADO" else "FALHA",
                   "approved_at": iso_now()}},
     )
-    if executed is None:
-        return {"ok": False, "approval_status": approval_status, "trade": trade,
-                "message": state.get("message", "Confirmação da corretora pendente.")}
     if not executed:
         raise HTTPException(status_code=409, detail=state.get("message", "A ordem não foi enviada."))
     return {"ok": True, "approval_status": approval_status, "trade": trade, "message": "Confirmação registrada e ordem enviada."}
