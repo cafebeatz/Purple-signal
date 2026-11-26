@@ -73,7 +73,16 @@
           <div class="rounded-xl bg-slate-950/60 p-3 mt-3"><div class="text-xs muted">Contagem regressiva da vela atual</div><div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div><div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div></div>
           <input id="confidence" type="range" min="50" max="99" value="60" class="w-full">
           <div class="grid grid-cols-2 gap-2 mt-3"><div><label class="text-xs muted">Valor por ordem</label><input id="robot-amount" class="field mt-1" type="number" min="1" max="10000" step="0.01" value="2"></div><div><label class="text-xs muted">Meta diária</label><input id="target-gain" class="field mt-1" type="number" min="0" step="0.01" value="0"></div><div class="col-span-2"><label class="text-xs muted">Limite de perda diária</label><input id="max-loss" class="field mt-1" type="number" min="0" step="0.01" value="0"></div></div>
-          <div class="grid grid-cols-2 gap-2 mt-3"><button id="scan-start" class="btn btn-primary" type="button" disabled>Iniciar scanner</button><button id="scan-stop" class="btn btn-danger hidden" type="button">Parar scanner</button><button id="robot-start" class="btn btn-primary" type="button" disabled>Ativar robô</button><button id="robot-pause" class="btn btn-secondary" type="button" disabled>Pausar robô</button><button id="robot-stop" class="btn btn-secondary" type="button" disabled>Desativar robô</button><button id="robot-reset" class="btn btn-secondary" type="button" disabled>Nova sessão / zerar placar</button></div>
+          <div class="grid grid-cols-2 gap-2 mt-3">
+          <div class="mb-3">
+            <label class="text-xs muted">Modo de operação</label>
+            <select id="operation-mode" class="field mt-1">
+              <option value="scanner">Scanner — somente sinais, sem ordens</option>
+              <option value="semi_auto">Semiautomático — aprovar cada sinal individualmente</option>
+            </select>
+            <p class="text-xs muted mt-1">O modo automático continua separado e exige senha do servidor.</p>
+          </div>
+<button id="scan-start" class="btn btn-primary" type="button" disabled>Iniciar scanner</button><button id="scan-stop" class="btn btn-danger hidden" type="button">Parar scanner</button><button id="robot-start" class="btn btn-primary" type="button" disabled>Ativar robô</button><button id="robot-pause" class="btn btn-secondary" type="button" disabled>Pausar robô</button><button id="robot-stop" class="btn btn-secondary" type="button" disabled>Desativar robô</button><button id="robot-reset" class="btn btn-secondary" type="button" disabled>Nova sessão / zerar placar</button></div>
           <p id="scan-message" class="text-xs muted mt-3">Conecte a corretora para iniciar o scanner.</p>
           <div class="grid grid-cols-2 gap-2 mt-3 text-xs"><div class="rounded-lg bg-slate-950/60 p-3">Lucro diário<strong id="daily-profit" class="block text-base mt-1">0.00</strong></div><div class="rounded-lg bg-slate-950/60 p-3">Proteção<strong id="risk-status" class="block text-base mt-1">Normal</strong></div></div>
           <p id="robot-status-note" class="text-xs muted mt-3">Ordens automáticas desativadas até você ativar o robô.</p>
@@ -162,6 +171,27 @@
         </div>
       </form>
     </div>
+
+    <section class="panel p-4 mt-4" id="quantum-brain-panel">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="font-bold text-lg text-purple-300">Quantum Brain</h2>
+          <p class="text-xs muted">Revisão após seis operações encerradas. Nenhuma mudança é aplicada sem sua decisão.</p>
+        </div>
+        <button id="quantum-refresh" class="btn btn-secondary text-xs" type="button">Atualizar análise</button>
+      </div>
+      <div id="quantum-summary" class="text-sm muted mt-3">Aguardando dados de operações encerradas.</div>
+      <div id="quantum-proposal" class="mt-3"></div>
+      <div id="quantum-history" class="mt-3 text-xs muted"></div>
+    </section>
+    <section class="panel p-4 mt-4" id="semi-approval-panel">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="font-bold text-lg">Aprovação individual de sinais</h2>
+        <span class="pill">Semiautomático</span>
+      </div>
+      <p class="text-xs muted mt-1">Cada botão autoriza somente aquele sinal. A autorização expira e não vale para sinais futuros.</p>
+      <div id="semi-approval-list" class="space-y-2 mt-3"><p class="text-sm muted">Nenhum sinal aguardando aprovação.</p></div>
+    </section>
     <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
   </main>
 
@@ -171,7 +201,7 @@
   const API='/api';
   const $=id=>document.getElementById(id);
   let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null, autoTradePasswordConfigured=null;
-  let pollTimers=[], candleCloseAt=0, currentServerTimeframe='M1';
+  let pollTimers=[], candleCloseAt=0, currentServerTimeframe='M1', currentOperationMode='scanner';
   let configSaveTimer=null, configSaving=false, configDirty=false;
   const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
@@ -288,7 +318,7 @@
     try{
       await saveConfig();
       const result=await api('/scan/start',{method:'POST',body:JSON.stringify({
-        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
+        timeframe:$('timeframe').value,min_confidence:Number($('confidence').value),mode:$('operation-mode').value,auto_trade:false,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)
       })});
       scanning=true;updateScanUI();$('scan-message').textContent=result.message||'Scanner iniciado pelo servidor.';toast('Scanner iniciado.');
       await refreshScan();
@@ -428,7 +458,7 @@
   async function refreshScan(){
     try{
       const s=await api('/scan/state');
-      scanning=s.running===true;robotPaused=s.paused===true;robotActive=s.auto_trade===true;updateScanUI();updateRobotUI();
+      scanning=s.running===true;robotPaused=s.paused===true;robotActive=s.auto_trade===true;currentOperationMode=s.mode|| (robotActive?'automatico':'scanner');if($('operation-mode'))$('operation-mode').value=currentOperationMode==='semi_auto'?'semi_auto':'scanner';updateScanUI();updateRobotUI();
       autoTradePasswordConfigured=s.auto_trade_password_configured===true;
       updatePasswordConfigHint(s.auto_trade_password_configured);
       currentServerTimeframe=String(s.timeframe||'M1').toUpperCase();
@@ -552,6 +582,49 @@
   $('robot-pause').addEventListener('click',async()=>{try{const r=await api('/robot/pause',{method:'POST'});robotPaused=r.paused;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
   $('robot-stop').addEventListener('click',async()=>{try{const r=await api('/robot/stop',{method:'POST'});robotActive=false;robotPaused=false;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
   $('robot-reset').addEventListener('click',async()=>{if(!confirm('Criar uma nova sessão e zerar somente o placar atual? O arquivo anterior será preservado.'))return;try{const r=await api('/robot/reset',{method:'POST'});toast(r.message);await Promise.all([refreshScan(),refreshHistory(),refreshArchive()])}catch(e){toast(e.message)}});
+
+  async function refreshSemiApprovals(){
+    const root=$('semi-approval-list'); if(!root)return;
+    if(currentOperationMode!=='semi_auto'){root.innerHTML='<p class="text-sm muted">Ative o modo Semiautomático para receber aprovações individuais. No modo Scanner, nenhuma ordem é permitida.</p>';return}
+    try{
+      const r=await api('/signals/history?limit=100');
+      const pending=(r.items||[]).filter(x=>x.approval_status==='AGUARDANDO_APROVACAO'&&x.result==='PENDENTE');
+      if(!pending.length){root.innerHTML='<p class="text-sm muted">Nenhum sinal aguardando aprovação.</p>';return}
+      root.innerHTML=pending.map(x=>`<div class="border border-slate-700 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+        <div><strong>${escapeHtml(x.asset)}</strong> · <span class="${directionClass(x.direction)}">${escapeHtml(directionLabel(x.direction))}</span>
+        <div class="text-xs muted">Confiança ${escapeHtml(x.confidence)}% · expira ${escapeHtml(dateFmt(x.approval_expires_at))}</div></div>
+        <div class="flex gap-2"><button class="btn btn-primary text-xs" data-approve="${escapeHtml(x.id)}">ENVIAR ORDEM</button>
+        <button class="btn btn-secondary text-xs" data-ignore="${escapeHtml(x.id)}">IGNORAR SINAL</button></div></div>`).join('');
+      root.querySelectorAll('[data-approve]').forEach(b=>b.addEventListener('click',async()=>{b.disabled=true;try{const out=await api(`/signals/${encodeURIComponent(b.dataset.approve)}/approve`,{method:'POST'});toast(out.message||'Ordem confirmada pela corretora.');await refreshHistory();await refreshSemiApprovals()}catch(e){toast(e.message);await refreshSemiApprovals()}}));
+      root.querySelectorAll('[data-ignore]').forEach(b=>b.addEventListener('click',async()=>{b.disabled=true;try{await api(`/signals/${encodeURIComponent(b.dataset.ignore)}/reject`,{method:'POST',body:JSON.stringify({reason:'Ignorado pelo usuário'})});await refreshSemiApprovals();await refreshHistory()}catch(e){toast(e.message)}}));
+    }catch(e){root.innerHTML=`<p class="text-rose-300">${escapeHtml(e.message)}</p>`}
+  }
+  async function refreshQuantumBrain(){
+    try{
+      const r=await api('/quantum-brain');
+      $('quantum-summary').textContent=`${r.completed_operations??0}/6 operações encerradas · ${r.wins??0} vitórias · ${r.losses??0} perdas. ${r.sample_note||''}`;
+      const p=r.pending_review;
+      if(p){
+        const q=p.proposal||{};
+        $('quantum-proposal').innerHTML=`<div class="border border-purple-400/40 rounded-xl p-3">
+          <div class="font-bold text-purple-300">Proposta: ${escapeHtml(q.action||'MANTER')}</div>
+          <p class="text-sm mt-1">${escapeHtml(q.reason||'Sem justificativa disponível.')}</p>
+          <p class="text-xs muted mt-2">Confiança mínima: ${escapeHtml(q.from)}% → ${escapeHtml(q.to)}%</p>
+          <div class="flex gap-2 mt-3"><button id="brain-keep" class="btn btn-secondary text-xs">MANTER</button><button id="brain-change" class="btn btn-primary text-xs" ${q.action==='MUDAR'?'':'disabled'}>MUDAR</button></div>
+        </div>`;
+        $('brain-keep').onclick=()=>decideBrain(p.id,'MANTER');
+        $('brain-change').onclick=()=>decideBrain(p.id,'MUDAR');
+      }else{
+        $('quantum-proposal').innerHTML='<p class="text-sm muted">Aguardando seis operações encerradas ou decisão da proposta atual.</p>';
+      }
+      $('quantum-history').textContent=(r.history||[]).map(x=>`${x.asset||'—'} ${x.direction||''}: ${x.result}`).join(' · ');
+    }catch(e){$('quantum-summary').textContent='Não foi possível carregar o Quantum Brain: '+e.message}
+  }
+  async function decideBrain(id,decision){
+    try{const r=await api(`/quantum-brain/${encodeURIComponent(id)}/decision`,{method:'POST',body:JSON.stringify({decision})});toast(r.message);await refreshQuantumBrain();await refreshScan()}
+    catch(e){toast(e.message)}
+  }
+  $('quantum-refresh')?.addEventListener('click',refreshQuantumBrain);
   async function refreshArchive(){try{const r=await api('/signals/sessions?limit=100');const a=Array.isArray(r.sessions)?r.sessions:[];$('archive-body').innerHTML=a.length?a.map(x=>`<tr><td>${escapeHtml(dateFmt(x.session_started_at||x.first_signal_at))}</td><td>${x.signals??0}</td><td class="text-emerald-300">${x.wins??0}</td><td class="text-rose-300">${x.losses??0}</td><td>${fmt(x.winrate??0,1)}%</td><td title="${escapeHtml(x.session_id)}">${escapeHtml(String(x.session_id||'').slice(0,8))}…</td></tr>`).join(''):'<tr><td colspan="6" class="skeleton">Nenhuma sessão arquivada.</td></tr>'}catch(e){$('archive-body').innerHTML=`<tr><td colspan="6">${escapeHtml(e.message)}</td></tr>`}}
   $('archive-refresh').addEventListener('click',refreshArchive);
   async function searchArchive(){
@@ -561,11 +634,11 @@
     try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td class="${directionClass(x.direction)}">${escapeHtml(directionLabel(x.direction))}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(res)}">${escapeHtml(res)}</td><td>${escapeHtml(tradeExecutionLabel(x))}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
   }
   $('archive-search').addEventListener('click',searchArchive);
-  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory(),refreshArchive()])}
+  async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory(),refreshArchive(),refreshSemiApprovals(),refreshQuantumBrain()])}
   function startPolling(){
     if(!authenticated)return;
     stopPolling();
-    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
+    pollTimers=[setInterval(updateCandleCountdown,1000),setInterval(refreshScan,3000),setInterval(refreshHistory,10000),setInterval(refreshBroker,15000),setInterval(refreshSemiApprovals,5000),setInterval(refreshQuantumBrain,15000),setInterval(()=>{if(selectedAsset)refreshChart()},7000)];
   }
   function stopPolling(){pollTimers.forEach(clearInterval);pollTimers=[]}
   updateRobotUI();
