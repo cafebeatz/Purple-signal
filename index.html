@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Didi Fluxo Bot — Terminal de Sinais</title>
+  <title>Purple Signal — Terminal de Sinais</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
-    :root{color-scheme:dark;--bg:#080b12;--panel:#101725;--line:#243044;--muted:#8b9ab0;--cyan:#22d3ee;--green:#34d399;--red:#fb7185;--gold:#fbbf24}
+    :root{color-scheme:dark;--bg:#080b12;--panel:#101725;--line:#243044;--muted:#8b9ab0;--cyan:#c084fc;--green:#34d399;--red:#fb7185;--gold:#fbbf24}
     *{box-sizing:border-box} body{margin:0;background:radial-gradient(ellipse at top,#172235 0,#080b12 48%);color:#e5edf8;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
     .panel{background:linear-gradient(145deg,rgba(19,29,45,.96),rgba(12,18,29,.96));border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 35px #0005}
     .muted{color:var(--muted)} .field{width:100%;background:#080e18;border:1px solid #2a3950;border-radius:9px;padding:10px 12px;color:#e5edf8;outline:none}
     .field:focus{border-color:var(--cyan)} .btn{border-radius:9px;padding:10px 14px;font-weight:700;transition:.15s}
-    .btn-primary{background:linear-gradient(90deg,#0891b2,#06b6d4);color:#04131a}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+    .btn-primary{background:linear-gradient(90deg,#7e22ce,#a855f7);color:#04131a}.btn-primary:disabled{opacity:.45;cursor:not-allowed}
     .btn-secondary{background:#1b293b;border:1px solid #33445c;color:#dce8f8}.btn-danger{background:#4a1f2a;border:1px solid #713344;color:#fecdd3}
     .pill{border:1px solid #33445c;background:#111c2b;border-radius:999px;padding:4px 9px;font-size:11px}
     .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#64748b}.dot.ok{background:#34d399;box-shadow:0 0 10px #34d39988}.dot.bad{background:#fb7185}
@@ -20,14 +20,15 @@
     .row-hover:hover{background:#172438}.hidden{display:none!important}
     .table-wrap{overflow:auto} table{width:100%;border-collapse:collapse;white-space:nowrap} th,td{padding:10px 12px;border-bottom:1px solid #253247;text-align:left;font-size:12px} th{color:#91a3bb;font-weight:600}
     .skeleton{color:#74849a;font-style:italic}.metric{font-variant-numeric:tabular-nums}
-    input[type=range]{accent-color:#22d3ee}
+    input[type=range]{accent-color:#c084fc}
     @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr!important}.header-wrap{align-items:flex-start;flex-direction:column}}
+
   </style>
 </head>
 <body>
   <section id="auth-panel" class="min-h-screen flex items-center justify-center p-4">
     <div class="panel p-6 w-full max-w-md">
-      <div class="text-xl font-black mb-1">PURPLE <span class="text-cyan-300">SIGNAL</span></div>
+      <div class="text-xl font-black mb-1">PURPLE <span class="text-purple-300">SIGNAL</span></div>
       <p class="muted text-sm mb-5">Entre na sua conta do Purple Signal.</p>
       <form id="auth-form" class="space-y-3">
         <div id="auth-name-wrap" class="hidden"><label class="text-xs muted">Nome</label><input id="auth-name" class="field mt-1" maxlength="80"></div>
@@ -35,15 +36,15 @@
         <div><label class="text-xs muted">Senha</label><input id="auth-password" class="field mt-1" type="password" required minlength="6" autocomplete="current-password"></div>
         <button id="auth-submit" class="btn btn-primary w-full" type="submit">Entrar</button>
       </form>
-      <button id="auth-toggle" class="text-cyan-300 text-sm mt-4" type="button">Criar uma conta</button>
+      <button id="auth-toggle" class="text-purple-300 text-sm mt-4" type="button">Criar uma conta</button>
       <p id="auth-message" class="text-xs muted mt-3" aria-live="polite"></p>
     </div>
   </section>
   <main id="dashboard" class="min-h-screen p-3 md:p-5 hidden">
     <header class="header-wrap flex justify-between gap-4 mb-5">
       <div class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center text-cyan-300"><i data-lucide="activity"></i></div>
-        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-cyan-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
+        <div class="w-11 h-11 rounded-xl bg-purple-400/10 border border-purple-300/30 flex items-center justify-center text-purple-300"><i data-lucide="activity"></i></div>
+        <div><h1 class="text-xl md:text-2xl font-black">PURPLE <span class="text-purple-300">SIGNAL</span></h1><div class="text-xs muted">Dados fornecidos pela API da aplicação</div></div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <span class="pill flex items-center gap-2"><span id="api-dot" class="dot"></span><span id="api-status">API aguardando</span></span>
@@ -54,7 +55,7 @@
     <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
       <aside class="space-y-4">
         <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-cyan-300"></i> Conexão da corretora</h2>
+          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="plug" class="w-4 text-purple-300"></i> Conexão da corretora</h2>
           <form id="broker-form" class="space-y-3">
             <div><label class="text-xs muted">Corretora</label><select id="broker-name" class="field mt-1"><option value="iqoption">IQ Option</option><option value="polarium">Polarium</option></select></div>
             <div><label class="text-xs muted">E-mail da corretora</label><input id="broker-email" class="field mt-1" type="email" autocomplete="off" required></div>
@@ -66,7 +67,7 @@
           <p id="broker-message" class="text-xs muted mt-3" aria-live="polite">Aguardando conexão confirmada pelo servidor.</p>
         </div>
         <div class="panel p-4">
-          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-cyan-300"></i> Parâmetros do scanner</h2>
+          <h2 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="sliders-horizontal" class="w-4 text-purple-300"></i> Parâmetros do scanner</h2>
           <div class="mb-3"><label class="text-xs muted">Tempo gráfico</label><select id="timeframe" class="field mt-1"><option value="M1" selected>M1</option></select></div>
           <div class="mb-2 flex justify-between text-xs"><label for="confidence">Confiança mínima</label><strong id="confidence-label">60%</strong></div>
           <div class="rounded-xl bg-slate-950/60 p-3 mt-3"><div class="text-xs muted">Contagem regressiva da vela atual</div><div id="candle-countdown" class="text-2xl font-black mt-1">--:--</div><div id="candle-countdown-note" class="text-xs muted mt-1">Aguardando horário do servidor</div></div>
@@ -96,6 +97,10 @@
             <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Timeframe</div><div id="hero-timeframe" class="font-bold mt-1">M1</div></div>
             <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Última vela</div><div id="hero-candle-time" class="font-bold mt-1">—</div></div>
             <div class="rounded-xl bg-slate-950/60 p-3"><div class="text-xs muted">Ativos no ranking</div><div id="rank-count" class="font-bold mt-1">0</div></div>
+          </div>
+          <div id="three-candle-analysis" class="mt-4 rounded-xl border border-slate-700/70 bg-slate-950/50 p-3">
+            <div class="flex flex-wrap justify-between gap-2 items-center"><strong class="text-sm">Confirmação da estratégia · 2 de 3 análises</strong><span class="pill">Candles fechados</span></div>
+            <p class="text-xs muted mt-2">Aguardando a confirmação de concordância retornada pelo servidor.</p>
           </div>
           <p class="text-xs muted mt-4">O preço exibido é o fechamento da última vela retornada por <code>/api/chart</code>, não uma cotação tick a tick.</p>
         </div>
@@ -130,14 +135,7 @@
       </section>
 
       <aside class="panel p-4 min-w-0">
-        <div class="flex justify-between items-center gap-2 mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
-        <label for="market-filter" class="text-xs muted">Exibir oportunidades</label>
-        <select id="market-filter" class="field mt-1 mb-2">
-          <option value="all">Todos os mercados</option>
-          <option value="open">Mercado Aberto</option>
-          <option value="otc">OTC</option>
-        </select>
-        <div id="market-counts" class="text-xs muted mb-3">Mercado Aberto: — · OTC: —</div>
+        <div class="flex justify-between items-center mb-3"><h2 class="font-bold">Ranking do scanner</h2><span id="scanner-count" class="pill">0 ativos</span></div>
         <div id="scanner-list" class="space-y-2"><div class="skeleton text-sm">Aguardando dados reais do scanner…</div></div>
         <div class="border-t border-slate-700 mt-4 pt-4">
           <h3 class="text-sm font-bold mb-2">Indicadores</h3>
@@ -145,6 +143,25 @@
         </div>
       </aside>
     </section>
+    <div id="robot-password-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-labelledby="robot-password-title">
+      <form id="robot-password-form" class="panel w-full max-w-sm p-5 space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <h2 id="robot-password-title" class="font-bold text-lg">Autorizar robô automático</h2>
+          <button id="robot-password-close" class="btn btn-secondary" type="button" aria-label="Fechar">✕</button>
+        </div>
+        <p class="text-xs muted">Digite a senha geral configurada no servidor para autorizar o modo automático.</p>
+        <p id="robot-password-config-note" class="text-xs text-amber-200" role="status">Verificando se a senha de autorização está configurada no servidor…</p>
+        <div>
+          <label for="robot-password" class="text-xs muted">Senha de autorização</label>
+          <input id="robot-password" class="field mt-1" type="password" required maxlength="256" autocomplete="current-password" placeholder="Digite a senha">
+        </div>
+        <p id="robot-password-error" class="text-xs text-rose-300" role="alert" aria-live="polite"></p>
+        <div class="flex gap-2">
+          <button id="robot-password-cancel" class="btn btn-secondary flex-1" type="button">Cancelar</button>
+          <button id="robot-password-submit" class="btn btn-primary flex-1" type="submit">Confirmar e ativar</button>
+        </div>
+      </form>
+    </div>
     <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
   </main>
 
@@ -153,8 +170,8 @@
   'use strict';
   const API='/api';
   const $=id=>document.getElementById(id);
-  let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null, marketFilter='all', lastRankingItems=[];
-  let pollTimers=[], candleCloseAt=0;
+  let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null, autoTradePasswordConfigured=null;
+  let pollTimers=[], candleCloseAt=0, currentServerTimeframe='M1';
   let configSaveTimer=null, configSaving=false, configDirty=false;
   const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
@@ -262,7 +279,7 @@
   }
   $('confidence').addEventListener('input',e=>{$('confidence-label').textContent=e.target.value+'%';scheduleConfigSave()});
   $('timeframe').addEventListener('change',async()=>{
-    $('hero-timeframe').textContent=$('timeframe').value;
+    $('hero-timeframe').textContent=currentServerTimeframe==='M1'?'M1':`${currentServerTimeframe} · FORA DO PADRÃO`;
     scheduleConfigSave();
     if(selectedAsset)await refreshChart();
   });
@@ -292,136 +309,119 @@
     return [];
   }
   function getAsset(x){return x.asset||x.symbol||x.active||x.pair||'—'}
+  function normalizeDirection(direction){
+    const dir=String(direction||'').trim().toUpperCase();
+    if(['CALL','BUY','COMPRA','UP'].some(v=>dir===v||dir.startsWith(v+' ')))return 'CALL';
+    if(['PUT','SELL','VENDA','DOWN'].some(v=>dir===v||dir.startsWith(v+' ')))return 'PUT';
+    return 'NEUTRO';
+  }
+  function directionLabel(direction){
+    const dir=normalizeDirection(direction);
+    return dir==='CALL'?'COMPRA · CALL':dir==='PUT'?'VENDA · PUT':'NEUTRO';
+  }
   function directionClass(direction){
-    const dir=String(direction||'').toUpperCase();
-    if(['CALL','BUY','COMPRA','UP'].some(v=>dir===v||dir.startsWith(v+' ')))return 'signal-call';
-    if(['PUT','SELL','VENDA','DOWN'].some(v=>dir===v||dir.startsWith(v+' ')))return 'signal-put';
-    return 'signal-neutral';
+    const dir=normalizeDirection(direction);
+    return dir==='CALL'?'signal-call':dir==='PUT'?'signal-put':'signal-neutral';
   }
-  function getMarketType(item){
-    const raw=String(item?.market_type||item?.market||'').toLowerCase();
-    if(raw==='otc'||raw.includes('otc'))return 'otc';
-    if(raw==='open'||raw.includes('aberto')||raw.includes('regular'))return 'open';
-    return getAsset(item).toUpperCase().includes('OTC')?'otc':'open';
-  }
-  function marketLabel(type){return type==='otc'?'OTC':'Mercado Aberto'}
-  function marketMatchesFilter(item){
-    return marketFilter==='all'||getMarketType(item)===marketFilter;
-  }
-  $('market-filter').addEventListener('change',()=>{
-    marketFilter=$('market-filter').value;
-    renderRanking(lastRankingItems);
-  });
   function renderRanking(items){
-    lastRankingItems=Array.isArray(items)?items:[];
-    const visible=lastRankingItems.filter(marketMatchesFilter);
-    $('rank-count').textContent=visible.length;
-    $('scanner-count').textContent=marketFilter==='all'
-      ? `${visible.length} ativos`
-      : `${visible.length} de ${lastRankingItems.length}`;
-    if(!visible.length){
-      $('scanner-list').innerHTML=lastRankingItems.length
-        ? '<div class="skeleton text-sm">Nenhum ativo deste mercado no ranking atual.</div>'
-        : '<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';
-      return;
-    }
-    $('scanner-list').innerHTML=visible.map((x,i)=>{
+    $('rank-count').textContent=items.length;$('scanner-count').textContent=items.length+' ativos';
+    if(!items.length){$('scanner-list').innerHTML='<div class="skeleton text-sm">Sem oportunidades retornadas. O painel não cria ativos ou sinais artificiais.</div>';return}
+    $('scanner-list').innerHTML=items.map((x,i)=>{
       const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
       const conf=x.confidence??x.confidence_pct??x.score;
       const price=x.price??x.close;
-      const type=getMarketType(x),label=marketLabel(type);
-      const badgeClass=type==='otc'?'text-amber-200 border-amber-500/40 bg-amber-500/10':'text-cyan-200 border-cyan-500/40 bg-cyan-500/10';
       return `<button type="button" data-index="${i}" class="row-hover w-full text-left rounded-xl border border-slate-700/70 p-3">
-        <div class="flex justify-between gap-2 items-center"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-[10px] rounded-full border px-2 py-1 ${badgeClass}">${label}</span></div>
-        <div class="flex justify-between gap-2 mt-2 text-xs"><span class="${directionClass(dir)}">${escapeHtml(dir||'—')}</span><span class="muted">Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span class="muted">${price==null?'':escapeHtml(fmt(price,5))}</span></div>
+        <div class="flex justify-between gap-2"><strong class="text-sm">${escapeHtml(asset)}</strong><span class="text-xs ${directionClass(dir)}">${escapeHtml(directionLabel(dir))}</span></div>
+        <div class="flex justify-between mt-2 text-xs muted"><span>Confiança: ${conf==null?'—':escapeHtml(conf)+'%'}</span><span>${price==null?'':escapeHtml(fmt(price,5))}</span></div>
       </button>`;
     }).join('');
     $('scanner-list').querySelectorAll('button[data-index]').forEach(b=>b.addEventListener('click',()=>{
-      const item=visible[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
+      const item=items[Number(b.dataset.index)];selectedSignal=item;selectedAsset=getAsset(item);renderHero(item);refreshChart();
     }));
-    if(!selectedAsset||!visible.some(x=>getAsset(x)===selectedAsset)){
-      selectedSignal=visible[0];selectedAsset=getAsset(visible[0]);renderHero(visible[0]);refreshChart();
+    if(!selectedAsset||!items.some(x=>getAsset(x)===selectedAsset)){selectedSignal=items[0];selectedAsset=getAsset(items[0]);renderHero(items[0]);refreshChart()}
+  }
+  function renderThreeCandleAnalysis(ind, check){
+    const root=$('three-candle-analysis');
+    if(!root)return;
+    const data=check&&typeof check==='object'?check:{};
+    const dirs=Array.isArray(data.directions)?data.directions:[];
+    const matching=Number(data.matching_count||0);
+    const required=Number(data.required||2);
+    const ready=data.ready===true;
+    const reason=String(data.reason||'Aguardando dados do servidor.');
+    const status=String(ind?.final_entry_confirmation||'AGUARDANDO').toUpperCase();
+    const statusLabel={
+      'APPROVED':'CONFIRMAÇÃO APROVADA',
+      'CONFIRMED_AFTER_OPPOSING_FORCE':'RETOMADA CONFIRMADA',
+      'WAIT':'AGUARDANDO NOVO FECHAMENTO',
+      'NO_CANDIDATE':'SEM CANDIDATO'
+    }[status]||status.replaceAll('_',' ');
+    const chips=dirs.length
+      ? dirs.map((d,i)=>`<span class="pill ${directionClass(d)}">Análise ${i+1}: ${escapeHtml(directionLabel(d))}</span>`).join('')
+      : '<span class="text-xs muted">As três leituras ainda não foram retornadas.</span>';
+    root.innerHTML=`
+      <div class="flex flex-wrap justify-between gap-2 items-center">
+        <strong class="text-sm">Confirmação da estratégia · 2 de 3 análises</strong>
+        <span class="pill ${ready?'text-emerald-300':'signal-neutral'}">${ready?`${matching}/${required} concordantes`:'SEM CONFIRMAÇÃO'}</span>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-3">${chips}</div>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs">
+        <span class="pill">Etapa final: ${escapeHtml(statusLabel)}</span>
+        <span class="pill">Filtro: ${ind?.entry_filter_passed===true?'APROVADO':ind?.entry_filter_passed===false?'BLOQUEADO':'—'}</span>
+      </div>
+      <p class="text-xs muted mt-3">${escapeHtml(reason)}</p>
+      ${ind?.final_entry_confirmation_reason?`<p class="text-[11px] muted mt-1">Motivo da confirmação final: ${escapeHtml(String(ind.final_entry_confirmation_reason).replaceAll('_',' '))}</p>`:''}
+    `;
+  }
+  function renderIndicatorDetails(ind){
+    if(!ind||typeof ind!=='object')return 'A API ainda não retornou os indicadores desta análise.';
+    const rows=[
+      ['Fluxo estimado',ind.flow_direction,ind.flow_pressure!=null?`pressão ${fmt(ind.flow_pressure,3)}`:''],
+      ['Tendência',ind.trend_direction,ind.trend_strength||''],
+      ['Estrutura',ind.market_structure,ind.structure_breakout&&ind.structure_breakout!=='NONE'?ind.structure_breakout:''],
+      ['EMA 9 / 21 / 100',[ind.ema9,ind.ema21,ind.ema100].map(v=>v==null?'—':fmt(v,5)).join(' / '),ind.ema100_direction||''],
+      ['RSI',ind.rsi==null?'—':fmt(ind.rsi,2),ind.rsi_status||''],
+      ['KDJ',`K ${fmt(ind.kdj_k,2)} · D ${fmt(ind.kdj_d,2)} · J ${fmt(ind.kdj_j,2)}`,ind.kdj_direction||''],
+      ['ADX',ind.adx==null?'—':fmt(ind.adx,2),ind.adx_status||''],
+      ['Pontuação',ind.brain_score==null?'—':`${ind.brain_score}/100`,ind.entry_confirmations==null?'':`${ind.entry_confirmations} confirmações`],
+      ['Filtro de entrada',ind.entry_filter_passed===true?'APROVADO':ind.entry_filter_passed===false?'BLOQUEADO':'—',ind.signal_mode||''],
+      ['Fonte do fluxo',ind.flow_source||'—',ind.flow_volume_available===true?'Volume disponível':ind.flow_volume_available===false?'Volume indisponível':'']
+    ];
+    const warnings=Array.isArray(ind.entry_context_warnings)?ind.entry_context_warnings:[];
+    const reasons=Array.isArray(ind.entry_filter_reasons)?ind.entry_filter_reasons:[];
+    return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${
+      rows.map(([label,value,note])=>`<div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-2"><div class="text-[11px] muted">${escapeHtml(label)}</div><div class="text-sm font-semibold mt-1 break-words">${escapeHtml(value??'—')}</div>${note?`<div class="text-[11px] muted mt-1">${escapeHtml(note)}</div>`:''}</div>`).join('')
+    }</div>
+    ${reasons.length?`<div class="mt-3"><div class="text-xs font-semibold text-rose-300 mb-1">Bloqueios</div><p class="text-xs muted">${reasons.map(x=>escapeHtml(String(x).replaceAll('_',' '))).join(' · ')}</p></div>`:''}
+    ${warnings.length?`<div class="mt-2"><div class="text-xs font-semibold text-amber-200 mb-1">Alertas de contexto</div><p class="text-xs muted">${warnings.map(x=>escapeHtml(String(x).replaceAll('_',' '))).join(' · ')}</p></div>`:''}
+    <p class="text-[11px] muted mt-3">O fluxo é uma estimativa derivada de OHLCV; não representa agressão real bid/ask nem livro de ofertas.</p>`;
+  }
+  function updatePasswordConfigHint(configured){
+    const note=$('robot-password-config-note');
+    if(!note)return;
+    if(configured===true){
+      note.className='text-xs text-emerald-300';
+      note.textContent='Senha de autorização configurada no servidor. Digite-a para continuar.';
+    }else if(configured===false){
+      note.className='text-xs text-rose-300';
+      note.textContent='A senha ainda não foi configurada no servidor. Defina AUTO_TRADE_PASSWORD nas variáveis de ambiente do serviço e reinicie o backend.';
+    }else{
+      note.className='text-xs text-amber-200';
+      note.textContent='Verificando se a senha de autorização está configurada no servidor…';
     }
   }
   function renderHero(x){
     const asset=getAsset(x),dir=String(x.direction||x.action||x.signal||'').toUpperCase();
-    $('hero-asset').textContent=asset;$('hero-direction').textContent=dir||'—';
+    $('hero-asset').textContent=asset;$('hero-direction').textContent=directionLabel(dir);
     $('hero-direction').className='text-xl font-black '+directionClass(dir);
     const conf=x.confidence??x.confidence_pct??x.score;
     $('hero-confidence').textContent='Confiança: '+(conf==null?'—':conf+'%');
-    $('hero-meta').textContent=[marketLabel(getMarketType(x)),x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
+    $('hero-meta').textContent=[x.expiration?`Expiração: ${x.expiration}`:null,x.timestamp?`Atualizado: ${dateFmt(x.timestamp)}`:null].filter(Boolean).join(' · ')||'Sinal retornado pelo scanner';
     $('hero-price').textContent=x.price!=null?fmt(x.price,5):x.close!=null?fmt(x.close,5):'Aguardando candle';
     $('hero-timeframe').textContent=$('timeframe').value;
-    const ind=x.indicators || (x.analysis && (x.analysis.indicators || x.analysis)) || null;
-    renderIndicators(ind);
-  }
-  function indicatorLabel(key){
-    const k=String(key).toLowerCase().replace(/[^a-z0-9]/g,'');
-    const labels={
-      rsi:'RSI', adx:'ADX', macd:'MACD', macdsignal:'Sinal do MACD',
-      macdhistogram:'Histograma MACD', ema9:'EMA 9', ema21:'EMA 21',
-      sma9:'Média móvel 9', sma21:'Média móvel 21', ma9:'Média móvel 9',
-      ma21:'Média móvel 21', bbupper:'Bollinger superior',
-      bblower:'Bollinger inferior', bbmiddle:'Bollinger central',
-      bollingerupper:'Bollinger superior', bollingerlower:'Bollinger inferior',
-      bollingermiddle:'Bollinger central', atr:'ATR', stoch:'Estocástico',
-      stochastic:'Estocástico', cci:'CCI', williamsr:'Williams %R',
-      direction:'Direção técnica', confidence:'Confiança', ready:'Sinal pronto',
-      trend:'Tendência', volatility:'Volatilidade', momentum:'Momentum',
-      support:'Suporte', resistance:'Resistência'
-    };
-    return labels[k] || String(key).replace(/[_-]+/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-  }
-  function indicatorValue(value){
-    if(value===null || value===undefined || value==='') return '—';
-    if(typeof value==='boolean') return value?'Sim':'Não';
-    if(typeof value==='number') return Number.isFinite(value)?value.toLocaleString('pt-BR',{maximumFractionDigits:5}):'—';
-    if(typeof value==='string'){
-      const v=value.toUpperCase();
-      if(v==='CALL') return 'COMPRA';
-      if(v==='PUT') return 'VENDA';
-      if(v==='NEUTRO') return 'NEUTRO';
-      if(v==='TRUE') return 'Sim';
-      if(v==='FALSE') return 'Não';
-      return value;
-    }
-    if(Array.isArray(value)){
-      const lastValue=value.length?value[value.length-1]:null;
-      if(typeof lastValue==='number') return indicatorValue(lastValue);
-      if(lastValue && typeof lastValue==='object' && 'value' in lastValue) return indicatorValue(lastValue.value);
-      return value.length?`${value.length} valores`:'—';
-    }
-    return null;
-  }
-  function collectIndicatorRows(obj, prefix='', depth=0, rows=[]){
-    if(!obj || typeof obj!=='object' || depth>2) return rows;
-    for(const [key,value] of Object.entries(obj)){
-      if(['timestamp','ts','candle_ts','asset','symbol','raw','debug','brain_snapshot'].includes(String(key).toLowerCase())) continue;
-      const label=prefix?`${prefix} · ${indicatorLabel(key)}`:indicatorLabel(key);
-      const display=indicatorValue(value);
-      if(display!==null && typeof value!=='object'){
-        rows.push({label,value:display});
-      } else if(Array.isArray(value)){
-        const displayArray=indicatorValue(value);
-        rows.push({label,value:displayArray});
-      } else if(value && typeof value==='object'){
-        collectIndicatorRows(value,label,depth+1,rows);
-      }
-    }
-    return rows;
-  }
-  function renderIndicators(ind){
-    const root=$('indicator-details');
-    const rows=collectIndicatorRows(ind);
-    if(!rows.length){
-      root.innerHTML='<div class="text-xs muted rounded-lg bg-slate-950/50 p-3">Aguardando valores dos indicadores retornados pela análise.</div>';
-      return;
-    }
-    root.innerHTML=`<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${rows.map(row=>`
-      <div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-3 min-w-0">
-        <div class="text-[10px] uppercase tracking-wide muted">${escapeHtml(row.label)}</div>
-        <div class="text-sm font-semibold text-slate-100 mt-1 break-words">${escapeHtml(row.value)}</div>
-      </div>`).join('')}</div>`;
+    const ind=x.indicators||x.analysis||null;
+    renderThreeCandleAnalysis(ind,x.three_candle_check);
+    $('indicator-details').innerHTML=renderIndicatorDetails(ind);
   }
   function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
   function updateCandleCountdown(){if(!candleCloseAt){$('candle-countdown').textContent='--:--';return}const remain=Math.max(0,candleCloseAt-Math.floor(Date.now()/1000));$('candle-countdown').textContent=String(Math.floor(remain/60)).padStart(2,'0')+':'+String(remain%60).padStart(2,'0')}
@@ -429,10 +429,18 @@
     try{
       const s=await api('/scan/state');
       scanning=s.running===true;robotPaused=s.paused===true;robotActive=s.auto_trade===true;updateScanUI();updateRobotUI();
-      candleCloseAt=Number(s.candle_close_ts||0);$('candle-countdown-note').textContent=candleCloseAt?'Fechamento estimado da vela '+(s.timeframe||$('timeframe').value)+' · horário do servidor':'Inicie o scanner para sincronizar a contagem.';updateCandleCountdown();
+      autoTradePasswordConfigured=s.auto_trade_password_configured===true;
+      updatePasswordConfigHint(s.auto_trade_password_configured);
+      currentServerTimeframe=String(s.timeframe||'M1').toUpperCase();
+      candleCloseAt=Number(s.candle_close_ts||0);
+      $('candle-countdown-note').textContent=currentServerTimeframe==='M1'
+        ?(candleCloseAt?'Fechamento estimado da vela M1 · horário do servidor':'Inicie o scanner para sincronizar a contagem.')
+        :`A API informou ${currentServerTimeframe}; M1 não está confirmado. Pare e reinicie o scanner para aplicar M1.`;
+      $('hero-timeframe').textContent=currentServerTimeframe==='M1'?'M1':`${currentServerTimeframe} · FORA DO PADRÃO`;
+      updateCandleCountdown();
       const editingConfig=configDirty||configSaving||configFields.some(id=>$(id)===document.activeElement);
       if(!editingConfig){
-        $('timeframe').value=s.timeframe||$('timeframe').value;
+        $('timeframe').value='M1';
         $('confidence').value=s.min_confidence??$('confidence').value;
         $('confidence-label').textContent=$('confidence').value+'%';
         $('robot-amount').value=s.amount??$('robot-amount').value;
@@ -442,21 +450,18 @@
       $('daily-profit').textContent=fmt(s.daily_profit??0,2);$('risk-status').textContent=s.risk_halted?'BLOQUEADO':'Normal';$('risk-status').className='block text-base mt-1 '+(s.risk_halted?'text-rose-300':'text-emerald-300');$('robot-status-note').textContent=s.risk_reason||s.message||'Proteção diária ativa conforme configuração.';
       $('scan-message').textContent=s.message|| (scanning?'Scanner ativo no servidor.':'Scanner parado.');
       const ranking=normalizeRanking(s);
-      const counts=s.asset_counts||{};
-      $('market-counts').textContent=`Mercado Aberto: ${counts.open??ranking.filter(x=>getMarketType(x)==='open').length} · OTC: ${counts.otc??ranking.filter(x=>getMarketType(x)==='otc').length}`;
       renderRanking(ranking);
-      if(s.best&&typeof s.best==='object'&&marketMatchesFilter(s.best)){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
+      if(s.best&&typeof s.best==='object'){selectedSignal=s.best;selectedAsset=getAsset(s.best);renderHero(s.best)}
       $('api-dot').className='dot ok';$('api-status').textContent='API conectada';
     }catch(err){$('api-dot').className='dot bad';$('api-status').textContent='API indisponível';$('scan-message').textContent=err.message}
   }
   async function refreshChart(){
     if(!selectedAsset||selectedAsset==='—')return;
     try{
-      const type=selectedSignal?getMarketType(selectedSignal):(selectedAsset.toUpperCase().includes('OTC')?'otc':'open');
-      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset)+'&market_type='+encodeURIComponent(type));
+      const data=await api('/chart?asset='+encodeURIComponent(selectedAsset));
       const candles=Array.isArray(data.candles)?data.candles:[];
       const c=candles[candles.length-1];
-      $('chart-source').textContent=selectedAsset+' · '+marketLabel(data.market_type||type)+' · '+(data.timeframe||$('timeframe').value);
+      $('chart-source').textContent=selectedAsset+' · '+(data.timeframe||$('timeframe').value);
       if(!c){$('chart-summary').textContent='A API não retornou candles para este ativo.';return}
       $('hero-price').textContent=fmt(c.close,5);
       $('hero-candle-time').textContent=dateFmt(c.ts);
@@ -493,7 +498,7 @@
         const result=String(x.result??x.status??'PENDENTE').toUpperCase();
         const execution=tradeExecutionLabel(x);
         const profit=x.profit??x.trade?.profit;
-        return `<tr><td>${escapeHtml(dateFmt(x.ts??x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction??x.action??'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(result)}">${escapeHtml(result)}</td><td>${escapeHtml(execution)}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`;
+        return `<tr><td>${escapeHtml(dateFmt(x.ts??x.created_at??x.timestamp??x.time))}</td><td>${escapeHtml(getAsset(x))}</td><td class="${directionClass(x.direction??x.action)}">${escapeHtml(directionLabel(x.direction??x.action))}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(result)}">${escapeHtml(result)}</td><td>${escapeHtml(execution)}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`;
       }).join('');
     }catch(err){$('history-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(err.message)}</td></tr>`}
   }
@@ -503,7 +508,47 @@
     $('robot-stop').disabled=!robotActive;$('robot-reset').disabled=!authenticated;
     $('robot-status-note').textContent=robotActive?(robotPaused?'Robô pausado; sinais pendentes continuam sendo acompanhados.':'Robô automático ativo.'):'Ordens automáticas desativadas; scanner analítico pode continuar ativo.';
   }
-  $('robot-start').addEventListener('click',async()=>{try{const cfg={auto_trade:true,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)};const r=scanning?await api('/robot/start',{method:'POST',body:JSON.stringify(cfg)}):await api('/scan/start',{method:'POST',body:JSON.stringify({...cfg,timeframe:$('timeframe').value,min_confidence:Number($('confidence').value)})});robotActive=true;robotPaused=false;$('scan-message').textContent=r.message;toast(r.message||'Robô ativado pelo servidor.');await refreshScan()}catch(e){toast(e.message);$('scan-message').textContent=e.message}});
+  function openRobotPasswordModal(){
+    updatePasswordConfigHint(autoTradePasswordConfigured);
+    $('robot-password').value='';
+    $('robot-password-error').textContent='';
+    $('robot-password-modal').classList.remove('hidden');
+    $('robot-password-modal').classList.add('flex');
+    $('robot-password').focus();
+  }
+  function closeRobotPasswordModal(){
+    $('robot-password-modal').classList.add('hidden');
+    $('robot-password-modal').classList.remove('flex');
+    $('robot-password').value='';
+    $('robot-password-error').textContent='';
+    $('robot-start').focus();
+  }
+  $('robot-start').addEventListener('click',openRobotPasswordModal);
+  $('robot-password-close').addEventListener('click',closeRobotPasswordModal);
+  $('robot-password-cancel').addEventListener('click',closeRobotPasswordModal);
+  $('robot-password-modal').addEventListener('click',e=>{if(e.target===$('robot-password-modal'))closeRobotPasswordModal()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('robot-password-modal').classList.contains('hidden'))closeRobotPasswordModal()});
+  $('robot-password-form').addEventListener('submit',async e=>{
+    e.preventDefault();
+    const submit=$('robot-password-submit');
+    const password=$('robot-password').value;
+    if(!password){$('robot-password-error').textContent='Informe a senha para continuar.';return}
+    submit.disabled=true;
+    $('robot-password-error').textContent='';
+    try{
+      const cfg={auto_trade:true,password,amount:Number($('robot-amount').value),target_gain:Number($('target-gain').value),max_loss:Number($('max-loss').value)};
+      const r=await api('/robot/start',{method:'POST',body:JSON.stringify(cfg)});
+      robotActive=true;robotPaused=false;
+      closeRobotPasswordModal();
+      $('scan-message').textContent=r.message;
+      toast(r.message||'Robô automático autorizado e ativado.');
+      await refreshScan();
+    }catch(err){
+      $('robot-password-error').textContent=err.message||'Não foi possível autorizar o robô.';
+    }finally{
+      submit.disabled=false;
+    }
+  });
   $('robot-pause').addEventListener('click',async()=>{try{const r=await api('/robot/pause',{method:'POST'});robotPaused=r.paused;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
   $('robot-stop').addEventListener('click',async()=>{try{const r=await api('/robot/stop',{method:'POST'});robotActive=false;robotPaused=false;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
   $('robot-reset').addEventListener('click',async()=>{if(!confirm('Criar uma nova sessão e zerar somente o placar atual? O arquivo anterior será preservado.'))return;try{const r=await api('/robot/reset',{method:'POST'});toast(r.message);await Promise.all([refreshScan(),refreshHistory(),refreshArchive()])}catch(e){toast(e.message)}});
@@ -513,7 +558,7 @@
     const params=new URLSearchParams({limit:'500'});
     const asset=$('archive-asset').value.trim(),result=$('archive-result').value,from=$('archive-from').value,to=$('archive-to').value;
     if(asset)params.set('asset',asset);if(result)params.set('result',result);if(from)params.set('date_from',from);if(to)params.set('date_to',to);
-    try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td>${escapeHtml(x.direction||'—')}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(res)}">${escapeHtml(res)}</td><td>${escapeHtml(tradeExecutionLabel(x))}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
+    try{const r=await api('/signals/archive?'+params.toString());const items=Array.isArray(r.items)?r.items:[];$('archive-trades-body').innerHTML=items.length?items.map(x=>{const res=String(x.result||'PENDENTE').toUpperCase();const profit=x.profit??x.trade?.profit;return `<tr><td>${escapeHtml(dateFmt(x.ts))}</td><td>${escapeHtml(getAsset(x))}</td><td class="${directionClass(x.direction)}">${escapeHtml(directionLabel(x.direction))}</td><td>${x.confidence==null?'—':escapeHtml(x.confidence)+'%'}</td><td class="${resultClass(res)}">${escapeHtml(res)}</td><td>${escapeHtml(tradeExecutionLabel(x))}</td><td>${profit==null?'—':escapeHtml(fmt(profit,2))}</td></tr>`}).join(''):'<tr><td colspan="7" class="skeleton">Nenhuma operação encontrada para esses filtros.</td></tr>'}catch(e){$('archive-trades-body').innerHTML=`<tr><td colspan="7" class="text-rose-300">${escapeHtml(e.message)}</td></tr>`}
   }
   $('archive-search').addEventListener('click',searchArchive);
   async function refreshAll(){await Promise.allSettled([refreshBroker(),refreshScan(),refreshHistory(),refreshArchive()])}
@@ -528,5 +573,8 @@
   if(window.lucide)lucide.createIcons();
 })();
 </script>
+
+
+
 </body>
 </html>
