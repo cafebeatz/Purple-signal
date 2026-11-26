@@ -36,6 +36,8 @@ class BrokerSession:
     message: str = ""
     assets: list[str] = field(default_factory=list)
     market_assets: dict[str, list[str]] = field(default_factory=lambda: {"open": [], "otc": []})
+    payouts: dict[str, float] = field(default_factory=dict)
+    payouts_updated_at: float = 0.0
     proc: Optional[object] = field(default=None, repr=False)
     conn: Optional[object] = field(default=None, repr=False)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
@@ -107,6 +109,7 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
     if simulate:
         session.assets = list(DEFAULT_ASSETS)
         session.market_assets = split_assets_by_market(session.assets)
+        session.payouts = {}
         session.connected = True
         session.message = "Modo simulado escolhido pelo usuário (mercado aberto + OTC sintéticos)"
         return session
@@ -140,6 +143,8 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
             "otc": grouped["otc"][:MAX_REAL_ASSETS],
         }
         session.assets = session.market_assets["open"] + session.market_assets["otc"]
+        session.payouts = {str(k): float(v) for k, v in (res.get("payouts") or {}).items()}
+        session.payouts_updated_at = time.time() if session.payouts else 0.0
         logger.info(
             "Ativos confirmados de %s: total=%d, mercado_aberto=%d, otc=%d",
             _broker_name(broker), len(session.assets),
@@ -277,3 +282,28 @@ async def refresh_balance(session: BrokerSession) -> None:
     res = await _call(session, {"op": "balance"}, timeout=10.0)
     if res.get("ok"):
         session.balance = res["balance"]
+
+
+async def get_payouts(session: BrokerSession, force: bool = False) -> dict[str, float]:
+    """Retorna payout real em fração; atualiza no máximo a cada 60 segundos."""
+    if session.simulated:
+        return {}
+    if not force and session.payouts_updated_at and time.time() - session.payouts_updated_at < 60:
+        return dict(session.payouts)
+    res = await _call(session, {"op": "payouts"}, timeout=20.0)
+    if res.get("ok") and isinstance(res.get("payouts"), dict):
+        normalized: dict[str, float] = {}
+        for asset, raw in res["payouts"].items():
+            try:
+                value = float(raw)
+                if value > 1:
+                    value /= 100.0
+                if 0 < value <= 1:
+                    normalized[str(asset)] = value
+            except (TypeError, ValueError):
+                continue
+        session.payouts = normalized
+        session.payouts_updated_at = time.time()
+    elif not res.get("ok"):
+        session.payouts_updated_at = time.time()
+    return dict(session.payouts)
