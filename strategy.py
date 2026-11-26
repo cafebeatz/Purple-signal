@@ -1,4 +1,4 @@
-"""Purple Signal — estratégia consolidada v3.
+"""Purple Signal — estratégia consolidada v5 (base V3 disponível + módulos V5).
 Base: versão atual de 1.009 linhas, comparada com a versão anterior funcional.
 Mantém analyze_candles(candles) e sma(series, period) para compatibilidade com server.py.
 O fluxo é estimado por OHLCV; não representa agressão bid/ask nem livro real.
@@ -465,6 +465,119 @@ def _trend_component(
         "slope_atr": normalized,
         "strength": min(100, int(abs(normalized) * 100)),
     }
+
+
+
+
+def _advanced_structure_v5(df: pd.DataFrame, atr_value: float) -> dict:
+    """Price Action + SMC aproximados, calculados apenas com candles OHLCV fechados.
+
+    BOS/CHOCH usam pivôs confirmados (2 candles à direita). Liquidity sweep exige
+    varredura e fechamento de volta para dentro da faixa. OB/FVG são zonas
+    heurísticas, não identificação de ordens institucionais reais.
+    """
+    empty = {
+        "price_action_pattern": "NONE", "price_action_direction": "NEUTRO",
+        "bos_choch": "NONE", "smc_structure_direction": "NEUTRO",
+        "liquidity_sweep": "NONE", "liquidity_sweep_direction": "NEUTRO",
+        "sweep_level": 0.0, "order_block": "NONE",
+        "order_block_low": 0.0, "order_block_high": 0.0,
+        "order_block_direction": "NEUTRO", "fvg": "NONE",
+        "fvg_low": 0.0, "fvg_high": 0.0, "fvg_direction": "NEUTRO",
+        "smc_score_call": 0, "smc_score_put": 0, "smc_score": 0,
+        "smc_confluence": "NEUTRO",
+    }
+    if len(df) < 20 or not np.isfinite(atr_value) or atr_value <= 0:
+        return empty
+
+    o = df.open.astype(float).to_numpy()
+    h = df.high.astype(float).to_numpy()
+    l = df.low.astype(float).to_numpy()
+    c = df.close.astype(float).to_numpy()
+    n = len(df)
+    last, prev = n - 1, n - 2
+    tol = max(atr_value * 0.04, abs(c[last]) * 1e-7)
+
+    # Pivôs confirmados, evitando usar extremos ainda não confirmados.
+    ph, pl = [], []
+    for k in range(max(2, n - 90), n - 2):
+        if h[k] >= max(h[k-2:k]) and h[k] > max(h[k+1:k+3]):
+            ph.append((k, h[k]))
+        if l[k] <= min(l[k-2:k]) and l[k] < min(l[k+1:k+3]):
+            pl.append((k, l[k]))
+    last_hi = ph[-1][1] if ph else None
+    last_lo = pl[-1][1] if pl else None
+
+    out = dict(empty)
+    # Price Action: engolfo, pin bar/rejeição e rompimento de inside bar.
+    body = abs(c[last] - o[last])
+    rng = max(h[last] - l[last], 1e-12)
+    upper = h[last] - max(o[last], c[last])
+    lower = min(o[last], c[last]) - l[last]
+    prev_body_low, prev_body_high = min(o[prev], c[prev]), max(o[prev], c[prev])
+    if c[last] > o[last] and c[prev] < o[prev] and min(o[last], c[last]) <= prev_body_low and max(o[last], c[last]) >= prev_body_high:
+        out["price_action_pattern"], out["price_action_direction"] = "BULLISH_ENGULFING", "CALL"
+    elif c[last] < o[last] and c[prev] > o[prev] and min(o[last], c[last]) <= prev_body_low and max(o[last], c[last]) >= prev_body_high:
+        out["price_action_pattern"], out["price_action_direction"] = "BEARISH_ENGULFING", "PUT"
+    elif lower / rng >= 0.58 and body / rng <= 0.35 and c[last] >= o[last]:
+        out["price_action_pattern"], out["price_action_direction"] = "BULLISH_PIN_BAR", "CALL"
+    elif upper / rng >= 0.58 and body / rng <= 0.35 and c[last] <= o[last]:
+        out["price_action_pattern"], out["price_action_direction"] = "BEARISH_PIN_BAR", "PUT"
+    elif (h[prev] - l[prev]) < (h[prev-1] - l[prev-1]) and c[last] > h[prev]:
+        out["price_action_pattern"], out["price_action_direction"] = "INSIDE_BAR_BREAK_UP", "CALL"
+    elif (h[prev] - l[prev]) < (h[prev-1] - l[prev-1]) and c[last] < l[prev]:
+        out["price_action_pattern"], out["price_action_direction"] = "INSIDE_BAR_BREAK_DOWN", "PUT"
+
+    # BOS e CHOCH: quebra de pivô; CHOCH quando rompe contra a estrutura recente.
+    bullish_structure = len(ph) >= 2 and len(pl) >= 2 and ph[-1][1] > ph[-2][1] + tol and pl[-1][1] > pl[-2][1] + tol
+    bearish_structure = len(ph) >= 2 and len(pl) >= 2 and ph[-1][1] < ph[-2][1] - tol and pl[-1][1] < pl[-2][1] - tol
+    if last_hi is not None and c[last] > last_hi + tol:
+        out["bos_choch"] = "BULLISH_CHOCH" if bearish_structure else "BULLISH_BOS"
+        out["smc_structure_direction"] = "CALL"
+    elif last_lo is not None and c[last] < last_lo - tol:
+        out["bos_choch"] = "BEARISH_CHOCH" if bullish_structure else "BEARISH_BOS"
+        out["smc_structure_direction"] = "PUT"
+
+    # Liquidity sweep: wick atravessa pivô e candle fecha de volta para dentro.
+    if last_hi is not None and h[last] > last_hi + tol and c[last] < last_hi:
+        out["liquidity_sweep"], out["liquidity_sweep_direction"] = "BUY_SIDE_SWEEP", "PUT"
+        out["sweep_level"] = float(last_hi)
+    elif last_lo is not None and l[last] < last_lo - tol and c[last] > last_lo:
+        out["liquidity_sweep"], out["liquidity_sweep_direction"] = "SELL_SIDE_SWEEP", "CALL"
+        out["sweep_level"] = float(last_lo)
+
+    # FVG de três candles (gap entre o candle 1 e o 3), com tamanho mínimo.
+    if l[last] > h[last-2] + tol:
+        out["fvg"], out["fvg_low"], out["fvg_high"], out["fvg_direction"] = "BULLISH_FVG", float(h[last-2]), float(l[last]), "CALL"
+    elif h[last] < l[last-2] - tol:
+        out["fvg"], out["fvg_low"], out["fvg_high"], out["fvg_direction"] = "BEARISH_FVG", float(h[last]), float(l[last-2]), "PUT"
+
+    # Order Block heurístico: última vela oposta antes de deslocamento >= 1 ATR.
+    search_start = max(1, last - 8)
+    for k in range(last - 1, search_start - 1, -1):
+        displacement = abs(c[last] - c[k])
+        if displacement < atr_value * 1.0:
+            continue
+        if c[last] > c[k] and c[k] < o[k]:
+            out["order_block"], out["order_block_direction"] = "BULLISH_ORDER_BLOCK", "CALL"
+            out["order_block_low"], out["order_block_high"] = float(l[k]), float(h[k])
+            break
+        if c[last] < c[k] and c[k] > o[k]:
+            out["order_block"], out["order_block_direction"] = "BEARISH_ORDER_BLOCK", "PUT"
+            out["order_block_low"], out["order_block_high"] = float(l[k]), float(h[k])
+            break
+
+    scores = {"CALL": 0, "PUT": 0}
+    for key, weight in (("price_action_direction", 2), ("smc_structure_direction", 3),
+                        ("liquidity_sweep_direction", 3), ("order_block_direction", 1),
+                        ("fvg_direction", 1)):
+        side = out[key]
+        if side in scores:
+            scores[side] += weight
+    out["smc_score_call"], out["smc_score_put"] = scores["CALL"], scores["PUT"]
+    out["smc_score"] = scores["CALL"] - scores["PUT"]
+    out["smc_confluence"] = "CALL" if scores["CALL"] >= scores["PUT"] + 2 else "PUT" if scores["PUT"] >= scores["CALL"] + 2 else "NEUTRO"
+    return out
 
 
 Direction = Literal["CALL", "PUT", "NEUTRO"]
@@ -936,6 +1049,19 @@ def analyze_candles(candles: list[dict]) -> dict:
 
     # Atualiza o resultado do filtro incluindo a confirmação final.
     final_entry_filter_passed = not bool(entry_filter_reasons) and final_confirmation_passed
+    # V5: confluência Price Action/SMC. Não cria sinal sozinho nem substitui
+    # os filtros V4; apenas ajusta moderadamente a nota de um candidato já válido.
+    advanced_structure = _advanced_structure_v5(df, atr_value)
+    if direction in ("CALL", "PUT"):
+        smc_side = advanced_structure["smc_confluence"]
+        if smc_side == direction:
+            brain_score = min(97, brain_score + 4)
+        elif smc_side in ("CALL", "PUT") and smc_side != direction:
+            brain_score = max(0, brain_score - 3)
+        # Sweep confirmado contra a liquidez pode reforçar uma reversão,
+        # mas nunca troca a direção do sinal automaticamente.
+        if advanced_structure["liquidity_sweep_direction"] == direction:
+            brain_score = min(97, brain_score + 2)
     confidence = int(brain_score) if direction != "NEUTRO" else 0
 
     macd_cross_up = (
@@ -956,6 +1082,26 @@ def analyze_candles(candles: list[dict]) -> dict:
     )
 
     indicators = {
+        "strategy_version": "V5_SMC_PRICE_ACTION",
+        "price_action_pattern": advanced_structure["price_action_pattern"],
+        "price_action_direction": advanced_structure["price_action_direction"],
+        "bos_choch": advanced_structure["bos_choch"],
+        "smc_structure_direction": advanced_structure["smc_structure_direction"],
+        "liquidity_sweep": advanced_structure["liquidity_sweep"],
+        "liquidity_sweep_direction": advanced_structure["liquidity_sweep_direction"],
+        "liquidity_sweep_level": round(float(advanced_structure["sweep_level"]), 8),
+        "order_block": advanced_structure["order_block"],
+        "order_block_direction": advanced_structure["order_block_direction"],
+        "order_block_low": round(float(advanced_structure["order_block_low"]), 8),
+        "order_block_high": round(float(advanced_structure["order_block_high"]), 8),
+        "fvg": advanced_structure["fvg"],
+        "fvg_direction": advanced_structure["fvg_direction"],
+        "fvg_low": round(float(advanced_structure["fvg_low"]), 8),
+        "fvg_high": round(float(advanced_structure["fvg_high"]), 8),
+        "smc_score_call": int(advanced_structure["smc_score_call"]),
+        "smc_score_put": int(advanced_structure["smc_score_put"]),
+        "smc_score": int(advanced_structure["smc_score"]),
+        "smc_confluence": advanced_structure["smc_confluence"],
         "flow_direction": flow_direction,
         "flow_pressure": round(flow, 3),
         "flow_strength": flow_strength,
