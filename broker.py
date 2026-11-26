@@ -11,7 +11,7 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 import numpy as np
 from broker_worker import worker_main
 logger = logging.getLogger(__name__)
@@ -21,13 +21,9 @@ DEFAULT_ASSETS = [
     "EURJPY", "EURGBP", "GBPJPY", "EURCHF", "AUDJPY", "AUDCAD", "CADJPY",
     "EURUSD-OTC", "GBPUSD-OTC", "USDJPY-OTC", "AUDCAD-OTC", "EURJPY-OTC",
 ]
+MAX_REAL_ASSETS = 60
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900}
 SIM_PAYOUT = 0.85
-
-
-class TradeConfirmationUnknown(TimeoutError):
-    """O envio foi iniciado, mas a corretora não confirmou o resultado."""
-
 @dataclass
 class BrokerSession:
     broker: str
@@ -49,13 +45,34 @@ async def _recv(conn, timeout: float):
     if not ready:
         raise TimeoutError("Corretora não respondeu a tempo")
     return conn.recv()
-async def _call(session: BrokerSession, cmd: dict, timeout: float = 45.0) -> dict:
+async def _call(
+    session: BrokerSession,
+    cmd: dict,
+    timeout: float = 45.0,
+    on_partial: Optional[Callable[[dict], Awaitable[None]]] = None,
+) -> dict:
+    """Executa um comando; consome mensagens parciais até a resposta final."""
     async with session.lock:
         if session.conn is None or session.proc is None or not session.proc.is_alive():
             raise ConnectionError("Conexão com a corretora perdida")
         session.conn.send(cmd)
+        deadline = asyncio.get_running_loop().time() + timeout
         try:
-            return await _recv(session.conn, timeout)
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("Corretora não respondeu a tempo")
+                response = await _recv(session.conn, remaining)
+                if response.get("partial"):
+                    if on_partial is not None:
+                        try:
+                            await on_partial(response)
+                        except Exception:  # noqa: BLE001
+                            # Não abandona mensagens do worker: isso deixaria
+                            # respostas antigas no Pipe e dessincronizaria comandos.
+                            logger.exception("Falha ao processar candle parcial do ativo %s", response.get("asset"))
+                    continue
+                return response
         except TimeoutError:
             _kill(session)
             session.message = "A corretora parou de responder. Reconecte."
@@ -117,11 +134,10 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
         else:
             grouped = split_assets_by_market(list(res.get("assets") or []))
 
-        # Sem limite artificial: a lista vem exclusivamente dos ativos
-        # habilitados e reconhecidos pela API da corretora.
+        # Limite independente por mercado para preservar espaço para os dois.
         session.market_assets = {
-            "open": grouped["open"],
-            "otc": grouped["otc"],
+            "open": grouped["open"][:MAX_REAL_ASSETS],
+            "otc": grouped["otc"][:MAX_REAL_ASSETS],
         }
         session.assets = session.market_assets["open"] + session.market_assets["otc"]
         logger.info(
@@ -191,12 +207,49 @@ def _simulate_candles(asset: str, timeframe: str, count: int) -> list[dict]:
     del candles[:-max(count, 150)]
     return [dict(c) for c in candles[-count:]]
 # ------------------ API usada pelo servidor ------------------
-async def get_candles_many(session: BrokerSession, assets: list[str], timeframe: str, count: int = 120) -> dict:
+async def get_candles_many(
+    session: BrokerSession,
+    assets: list[str],
+    timeframe: str,
+    count: int = 120,
+    on_asset: Optional[Callable[[str, list[dict]], Awaitable[None]]] = None,
+) -> dict:
+    """Busca candles e, opcionalmente, entrega cada ativo assim que chega."""
     if session.simulated:
-        return {a: _simulate_candles(a, timeframe, count) for a in assets}
-    res = await _call(session, {"op": "candles_many", "assets": assets,
-                                "tf": TIMEFRAME_SECONDS[timeframe], "count": count}, timeout=90.0)
-    return res.get("data", {}) if res.get("ok") else {}
+        result = {}
+        for asset in assets:
+            candles = _simulate_candles(asset, timeframe, count)
+            result[asset] = candles
+            if on_asset is not None:
+                await on_asset(asset, candles)
+        return result
+
+    result: dict[str, list[dict]] = {}
+
+    async def receive_partial(message: dict) -> None:
+        asset = str(message.get("asset") or "")
+        candles = message.get("candles") or []
+        if asset:
+            result[asset] = candles
+            if on_asset is not None:
+                await on_asset(asset, candles)
+
+    res = await _call(
+        session,
+        {"op": "candles_many", "assets": assets,
+         "tf": TIMEFRAME_SECONDS[timeframe], "count": count},
+        timeout=max(90.0, min(240.0, 2.0 * len(assets))),
+        on_partial=receive_partial,
+    )
+    if res.get("ok"):
+        # Compatibilidade com worker antigo ou resposta sem mensagens parciais.
+        final_data = res.get("data", {}) or {}
+        for asset, candles in final_data.items():
+            if asset not in result:
+                result[asset] = candles
+                if on_asset is not None:
+                    await on_asset(asset, candles)
+    return result
 async def get_candles(session: BrokerSession, asset: str, timeframe: str, count: int = 120) -> list[dict]:
     return (await get_candles_many(session, [asset], timeframe, count)).get(asset, [])
 async def place_trade(session: BrokerSession, asset: str, direction: str, amount: float, timeframe: str) -> str:
@@ -208,46 +261,14 @@ async def place_trade(session: BrokerSession, asset: str, direction: str, amount
         session.balance = round(session.balance - amount, 2)
         return f"SIM-{uuid.uuid4().hex[:10]}"
     minutes = TIMEFRAME_SECONDS[timeframe] // 60
-    try:
-        res = await _call(
-            session,
-            {
-                "op": "buy",
-                "asset": asset,
-                "action": direction.lower(),
-                "amount": amount,
-                "minutes": minutes,
-            },
-            timeout=20.0,
-        )
-    except TimeoutError as exc:
-        # A chamada pode ter chegado à corretora mesmo sem resposta a tempo.
-        # Nunca classificar automaticamente como rejeitada nem repetir a ordem.
-        raise TradeConfirmationUnknown(
-            "Tempo esgotado aguardando a corretora. A ordem pode ter sido recebida, "
-            "mas não foi possível confirmar o ID. Verifique o histórico da corretora "
-            "antes de tentar novamente."
-        ) from exc
-
-    if not isinstance(res, dict):
-        raise TradeConfirmationUnknown(
-            "A corretora devolveu uma resposta inválida; confirme o histórico antes de repetir."
-        )
+    res = await _call(session, {"op": "buy", "asset": asset, "action": direction.lower(),
+                                "amount": amount, "minutes": minutes}, timeout=20.0)
     if not res.get("ok"):
-        raise ValueError(res.get("error") or "Ordem recusada pela corretora")
-
-    raw_order_id = res.get("order_id")
-    try:
-        order_id = int(str(raw_order_id).strip())
-        if order_id <= 0:
-            raise ValueError
-    except (TypeError, ValueError):
-        raise TradeConfirmationUnknown(
-            "A corretora não devolveu um ID de ordem válido. Verifique o histórico "
-            "antes de tentar novamente."
-        )
-    return str(order_id)
+        raise ValueError(res.get("error") or "Ordem recusada")
+    return str(res["order_id"])
 async def check_trade(session: BrokerSession, order_id: str) -> dict:
+    if session.simulated or str(order_id).startswith("SIM-"):
+        return {"ok": True, "done": False}
     res = await _call(session, {"op": "check", "order_id": int(order_id)}, timeout=10.0)
     return res if res.get("ok") else {"done": False}
 async def refresh_balance(session: BrokerSession) -> None:
