@@ -1,7 +1,7 @@
 """Scanner leve e independente do motor operacional Purple Signal.
 
-A pontuação usa somente OHLCV. O payout real é um filtro rígido em conta real;
-em modo simulado, payout é desconhecido e o filtro fica explicitamente neutro.
+Avalia os seis critérios OHLCV e calcula uma pontuação informativa para
+ordenação. A pontuação não possui nota mínima e não consulta payout.
 """
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ import numpy as np
 import pandas as pd
 
 MIN_CANDLES = 60
-MIN_SCORE = 55
-MIN_PAYOUT = 0.86
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -23,17 +21,10 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def score_asset(
-    candles: list[dict],
-    payout: float | None = None,
-    simulated: bool = False,
-    min_score: int = MIN_SCORE,
-    min_payout: float = MIN_PAYOUT,
-) -> dict:
-    """Avalia rapidamente um ativo; não emite sinal CALL/PUT nem autoriza ordens."""
+def score_asset(candles: list[dict]) -> dict:
+    """Avalia rapidamente um ativo; score é informativo, sem corte mínimo."""
     result = {
         "qualified": False, "score": 0, "direction_bias": "NEUTRO",
-        "payout": payout, "payout_ok": bool(simulated or (payout is not None and payout >= min_payout)),
         "criteria": {}, "reason": "DADOS_INSUFICIENTES",
     }
     if len(candles or []) < MIN_CANDLES:
@@ -117,15 +108,12 @@ def score_asset(
                                 "points": round(regularity_points, 1), "max": 15}
     score += regularity_points
 
-    payout_ok = simulated or (payout is not None and payout >= min_payout)
-    qualified = payout_ok and score >= min_score
     result.update({
-        "qualified": bool(qualified), "score": round(score, 1),
+        # Com OHLCV válido, o ativo segue para o motor técnico. A pontuação
+        # permanece disponível apenas para ordenar/inspecionar o ranking.
+        "qualified": True, "score": round(score, 1),
         "direction_bias": direction if direction != "NEUTRO" else trend_direction,
-        "payout": payout, "payout_ok": bool(payout_ok),
         "criteria": criteria,
-        "reason": "APROVADO_NO_SCANNER" if qualified else
-                  "PAYOUT_ABAIXO_DE_86" if not payout_ok and payout is not None else
-                  "PAYOUT_NAO_DISPONIVEL" if not payout_ok else "PONTUACAO_INSUFICIENTE",
+        "reason": "ANALISADO_SEM_NOTA_MINIMA",
     })
     return result
