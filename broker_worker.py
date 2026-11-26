@@ -206,16 +206,18 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
             if op == "candles_many":
                 out = {}
                 for asset in cmd["assets"]:
-                    if asset not in active_asset_names:
-                        continue
-                    try:
-                        c = _candles(client, asset, cmd["tf"], cmd["count"])
-                        if c:
-                            out[asset] = c
-                    except Exception:
-                        logger.exception("Falha ao buscar candles do ativo %s", asset)
-                        continue
-                conn.send({"ok": True, "data": out})
+                    candles = []
+                    if asset in active_asset_names:
+                        try:
+                            candles = _candles(client, asset, cmd["tf"], cmd["count"]) or []
+                            if candles:
+                                out[asset] = candles
+                        except Exception:
+                            logger.exception("Falha ao buscar candles do ativo %s", asset)
+                    # Resposta parcial: o servidor pode analisar e atualizar a tela
+                    # antes de terminar a consulta dos demais ativos.
+                    conn.send({"ok": True, "partial": True, "asset": asset, "candles": candles})
+                conn.send({"ok": True, "done": True, "data": out})
             elif op == "balance":
                 conn.send({"ok": True, "balance": float(client.get_balance())})
             elif op == "buy":
