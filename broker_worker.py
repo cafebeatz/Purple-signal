@@ -97,32 +97,6 @@ def _open_assets(client) -> list[str]:
     return result
 
 
-def _payouts(client) -> dict[str, float]:
-    """Consulta payout disponibilizado pela API; valores retornados em fração (0.86)."""
-    try:
-        raw = client.get_all_profit() or {}
-    except Exception:
-        logger.exception("API não disponibilizou get_all_profit()")
-        return {}
-    result: dict[str, float] = {}
-    if not isinstance(raw, dict):
-        return result
-    for asset, details in raw.items():
-        if not isinstance(details, dict):
-            continue
-        # O backend envia ordens pelo método client.buy() (Turbo).
-        # Não usar payout Binary como substituto: seria uma taxa diferente.
-        try:
-            value = float(details.get("turbo") or 0)
-            if value > 1:
-                value /= 100.0
-            if 0 < value <= 1:
-                result[str(asset)] = value
-        except (TypeError, ValueError):
-            continue
-    return result
-
-
 def _candles(client, asset: str, tf: int, count: int):
     raw = client.get_candles(asset, tf, count, time.time())
     if not raw:
@@ -246,8 +220,6 @@ def worker_main(conn, broker: str, email: str, password: str, account_type: str)
                 conn.send({"ok": True, "done": True, "data": out})
             elif op == "balance":
                 conn.send({"ok": True, "balance": float(client.get_balance())})
-            elif op == "payouts":
-                conn.send({"ok": True, "payouts": _payouts(client)})
             elif op == "buy":
                 if cmd.get("asset") not in active_asset_names:
                     conn.send({"ok": False, "error": "Ativo não confirmado na lista atual da corretora"})
