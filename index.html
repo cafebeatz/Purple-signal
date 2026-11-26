@@ -52,6 +52,11 @@
       </div>
     </header>
 
+    <nav class="flex gap-2 mb-4" aria-label="Seções do terminal">
+      <button id="tab-scanner" class="btn btn-primary text-sm" type="button" aria-selected="true">Scanner</button>
+      <button id="tab-quantum" class="btn btn-secondary text-sm" type="button" aria-selected="false">Quantum Brain</button>
+    </nav>
+    <div id="scanner-tab-content">
     <section class="grid dashboard-grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)_310px] gap-4">
       <aside class="space-y-4">
         <div class="panel p-4">
@@ -152,6 +157,15 @@
         </div>
       </aside>
     </section>
+    <section class="panel p-4 mt-4" id="semi-approval-panel">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="font-bold text-lg">Aprovação individual de sinais</h2>
+        <span class="pill">Semiautomático</span>
+      </div>
+      <p class="text-xs muted mt-1">Cada autorização vale somente para o sinal exibido e expira. Sinais futuros exigem nova decisão.</p>
+      <div id="semi-approval-list" class="space-y-2 mt-3"><p class="text-sm muted">Nenhum sinal aguardando aprovação.</p></div>
+    </section>
+    </div>
     <div id="robot-password-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" aria-labelledby="robot-password-title">
       <form id="robot-password-form" class="panel w-full max-w-sm p-5 space-y-3">
         <div class="flex items-center justify-between gap-3">
@@ -172,6 +186,7 @@
       </form>
     </div>
 
+    <div id="quantum-tab-content" class="hidden">
     <section class="panel p-4 mt-4" id="quantum-brain-panel">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -184,14 +199,27 @@
       <div id="quantum-proposal" class="mt-3"></div>
       <div id="quantum-history" class="mt-3 text-xs muted"></div>
     </section>
-    <section class="panel p-4 mt-4" id="semi-approval-panel">
-      <div class="flex items-center justify-between gap-3">
-        <h2 class="font-bold text-lg">Aprovação individual de sinais</h2>
-        <span class="pill">Semiautomático</span>
+    </div>
+    <div id="semi-order-modal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/85 p-4" role="dialog" aria-modal="true" aria-labelledby="semi-order-title">
+      <div class="panel w-full max-w-md p-5 space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <h2 id="semi-order-title" class="text-xl font-black">Enviar ordem?</h2>
+          <span class="pill">Sinal individual</span>
+        </div>
+        <p class="text-sm muted">O scanner encontrou um sinal confirmado.</p>
+        <div class="rounded-xl border border-purple-400/30 bg-slate-950/60 p-4">
+          <div id="semi-order-asset" class="text-xl font-black">BTC/USD</div>
+          <div id="semi-order-direction" class="font-bold signal-call mt-1">COMPRA</div>
+          <div class="text-sm muted mt-2">Confiança: <strong id="semi-order-confidence">—</strong></div>
+          <div class="text-xs muted mt-2">Esta autorização vale somente para este sinal.</div>
+          <div id="semi-order-expiry" class="text-xs text-amber-200 mt-2"></div>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2">
+          <button id="semi-order-send" class="btn btn-primary flex-1" type="button">ENVIAR ORDEM</button>
+          <button id="semi-order-reject" class="btn btn-secondary flex-1" type="button">NÃO ENVIAR</button>
+        </div>
       </div>
-      <p class="text-xs muted mt-1">Cada botão autoriza somente aquele sinal. A autorização expira e não vale para sinais futuros.</p>
-      <div id="semi-approval-list" class="space-y-2 mt-3"><p class="text-sm muted">Nenhum sinal aguardando aprovação.</p></div>
-    </section>
+    </div>
     <div id="toast" class="fixed bottom-4 right-4 max-w-sm panel px-4 py-3 text-sm hidden" role="status"></div>
   </main>
 
@@ -203,6 +231,8 @@
   let brokerConnected=false, scanning=false, robotPaused=false, robotActive=false, authMode='login', authenticated=false, selectedAsset='', selectedSignal=null, autoTradePasswordConfigured=null;
   let pollTimers=[], candleCloseAt=0, currentServerTimeframe='M1', currentOperationMode='scanner';
   let configSaveTimer=null, configSaving=false, configDirty=false;
+  let activeApprovalId=null, approvalExpiryTimer=null;
+  const handledApprovalIds=new Set();
   const configFields=['timeframe','confidence','robot-amount','target-gain','max-loss'];
   const fmt=(v,d=5)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'—';
   const safe=(v)=>String(v??'—');
@@ -226,6 +256,18 @@
   }
   function showAuth(message=''){$('auth-panel').classList.remove('hidden');$('dashboard').classList.add('hidden');$('auth-message').textContent=message}
   function showApp(){$('auth-panel').classList.add('hidden');$('dashboard').classList.remove('hidden');if(window.lucide)lucide.createIcons()}
+  function showTab(name){
+    const quantum=name==='quantum';
+    $('scanner-tab-content').classList.toggle('hidden',quantum);
+    $('quantum-tab-content').classList.toggle('hidden',!quantum);
+    $('tab-scanner').className='btn '+(!quantum?'btn-primary':'btn-secondary')+' text-sm';
+    $('tab-quantum').className='btn '+(quantum?'btn-primary':'btn-secondary')+' text-sm';
+    $('tab-scanner').setAttribute('aria-selected',String(!quantum));
+    $('tab-quantum').setAttribute('aria-selected',String(quantum));
+    if(quantum)refreshQuantumBrain();
+  }
+  $('tab-scanner').addEventListener('click',()=>showTab('scanner'));
+  $('tab-quantum').addEventListener('click',()=>showTab('quantum'));
   $('auth-toggle').addEventListener('click',()=>{authMode=authMode==='login'?'register':'login';$('auth-name-wrap').classList.toggle('hidden',authMode!=='register');$('auth-submit').textContent=authMode==='login'?'Entrar':'Criar conta';$('auth-toggle').textContent=authMode==='login'?'Criar uma conta':'Já tenho conta';$('auth-password').autocomplete=authMode==='login'?'current-password':'new-password';$('auth-message').textContent=''});
   $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const payload={email:$('auth-email').value.trim(),password:$('auth-password').value};if(authMode==='register')payload.name=$('auth-name').value.trim();try{await api(authMode==='login'?'/auth/login':'/auth/register',{method:'POST',body:JSON.stringify(payload)});authenticated=true;showApp();await refreshAll();startPolling();}catch(err){$('auth-message').textContent=err.message}});
   $('logout').addEventListener('click',async()=>{try{await api('/auth/logout',{method:'POST'})}catch(_){}stopPolling();authenticated=false;brokerConnected=false;scanning=false;showAuth('Sessão encerrada. Entre novamente.');});
@@ -583,20 +625,75 @@
   $('robot-stop').addEventListener('click',async()=>{try{const r=await api('/robot/stop',{method:'POST'});robotActive=false;robotPaused=false;$('scan-message').textContent=r.message;await refreshScan()}catch(e){toast(e.message)}});
   $('robot-reset').addEventListener('click',async()=>{if(!confirm('Criar uma nova sessão e zerar somente o placar atual? O arquivo anterior será preservado.'))return;try{const r=await api('/robot/reset',{method:'POST'});toast(r.message);await Promise.all([refreshScan(),refreshHistory(),refreshArchive()])}catch(e){toast(e.message)}});
 
+  function closeSemiOrderModal(){
+    $('semi-order-modal').classList.add('hidden');
+    $('semi-order-modal').classList.remove('flex');
+    if(approvalExpiryTimer){clearTimeout(approvalExpiryTimer);approvalExpiryTimer=null}
+    activeApprovalId=null;
+  }
+  function openSemiOrderModal(signal){
+    const id=String(signal.id);
+    if(!id||handledApprovalIds.has(id)||activeApprovalId===id)return;
+    closeSemiOrderModal();
+    activeApprovalId=id;
+    const direction=normalizeDirection(signal.direction);
+    $('semi-order-asset').textContent=getAsset(signal);
+    $('semi-order-direction').textContent=direction==='CALL'?'COMPRA':direction==='PUT'?'VENDA':'NEUTRO';
+    $('semi-order-direction').className='font-bold mt-1 '+directionClass(direction);
+    $('semi-order-confidence').textContent=(signal.confidence==null?'—':signal.confidence+'%');
+    const expires=signal.approval_expires_at?new Date(signal.approval_expires_at).getTime():0;
+    const remaining=expires?expires-Date.now():0;
+    $('semi-order-expiry').textContent=expires?`Janela temporária · expira em ${Math.max(0,Math.ceil(remaining/1000))} s`:'Janela temporária de autorização';
+    $('semi-order-modal').classList.remove('hidden');
+    $('semi-order-modal').classList.add('flex');
+    if(expires){
+      approvalExpiryTimer=setTimeout(()=>{
+        handledApprovalIds.add(id);
+        closeSemiOrderModal();
+        toast('A autorização deste sinal expirou. Nenhuma ordem foi enviada.');
+        refreshSemiApprovals();
+      },Math.max(0,remaining));
+    }
+  }
+  async function decideSemiOrder(decision){
+    const id=activeApprovalId;
+    if(!id)return;
+    const send=$('semi-order-send'),reject=$('semi-order-reject');
+    send.disabled=reject.disabled=true;
+    try{
+      if(decision==='approve'){
+        const out=await api(`/signals/${encodeURIComponent(id)}/approve`,{method:'POST'});
+        toast(out.message||'Solicitação de ordem enviada à corretora.');
+      }else{
+        const out=await api(`/signals/${encodeURIComponent(id)}/reject`,{method:'POST',body:JSON.stringify({reason:'Não enviar ordem — sinal registrado sem operação'})});
+        toast(out.message||'Sinal registrado sem enviar ordem.');
+      }
+      handledApprovalIds.add(id);
+      closeSemiOrderModal();
+      await Promise.all([refreshHistory(),refreshSemiApprovals()]);
+    }catch(e){toast(e.message||'Não foi possível registrar a decisão.');}
+    finally{send.disabled=reject.disabled=false}
+  }
+  $('semi-order-send').addEventListener('click',()=>decideSemiOrder('approve'));
+  $('semi-order-reject').addEventListener('click',()=>decideSemiOrder('reject'));
   async function refreshSemiApprovals(){
     const root=$('semi-approval-list'); if(!root)return;
-    if(currentOperationMode!=='semi_auto'){root.innerHTML='<p class="text-sm muted">Ative o modo Semiautomático para receber aprovações individuais. No modo Scanner, nenhuma ordem é permitida.</p>';return}
+    if(currentOperationMode!=='semi_auto'){
+      root.innerHTML='<p class="text-sm muted">Ative o modo Semiautomático para receber aprovações individuais. No modo Scanner, nenhuma ordem é permitida.</p>';
+      if(activeApprovalId)closeSemiOrderModal();
+      return;
+    }
     try{
       const r=await api('/signals/history?limit=100');
       const pending=(r.items||[]).filter(x=>x.approval_status==='AGUARDANDO_APROVACAO'&&x.result==='PENDENTE');
+      const eligible=pending.filter(x=>!handledApprovalIds.has(String(x.id)));
       if(!pending.length){root.innerHTML='<p class="text-sm muted">Nenhum sinal aguardando aprovação.</p>';return}
       root.innerHTML=pending.map(x=>`<div class="border border-slate-700 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
-        <div><strong>${escapeHtml(x.asset)}</strong> · <span class="${directionClass(x.direction)}">${escapeHtml(directionLabel(x.direction))}</span>
+        <div><strong>${escapeHtml(getAsset(x))}</strong> · <span class="${directionClass(x.direction)}">${escapeHtml(directionLabel(x.direction))}</span>
         <div class="text-xs muted">Confiança ${escapeHtml(x.confidence)}% · expira ${escapeHtml(dateFmt(x.approval_expires_at))}</div></div>
-        <div class="flex gap-2"><button class="btn btn-primary text-xs" data-approve="${escapeHtml(x.id)}">ENVIAR ORDEM</button>
-        <button class="btn btn-secondary text-xs" data-ignore="${escapeHtml(x.id)}">IGNORAR SINAL</button></div></div>`).join('');
-      root.querySelectorAll('[data-approve]').forEach(b=>b.addEventListener('click',async()=>{b.disabled=true;try{const out=await api(`/signals/${encodeURIComponent(b.dataset.approve)}/approve`,{method:'POST'});toast(out.message||'Ordem confirmada pela corretora.');await refreshHistory();await refreshSemiApprovals()}catch(e){toast(e.message);await refreshSemiApprovals()}}));
-      root.querySelectorAll('[data-ignore]').forEach(b=>b.addEventListener('click',async()=>{b.disabled=true;try{await api(`/signals/${encodeURIComponent(b.dataset.ignore)}/reject`,{method:'POST',body:JSON.stringify({reason:'Ignorado pelo usuário'})});await refreshSemiApprovals();await refreshHistory()}catch(e){toast(e.message)}}));
+        <span class="pill">Aguardando decisão individual</span></div>`).join('');
+      if(!activeApprovalId&&eligible.length)openSemiOrderModal(eligible[0]);
+      if(activeApprovalId&&!pending.some(x=>String(x.id)===activeApprovalId))closeSemiOrderModal();
     }catch(e){root.innerHTML=`<p class="text-rose-300">${escapeHtml(e.message)}</p>`}
   }
   async function refreshQuantumBrain(){
@@ -610,14 +707,15 @@
           <div class="font-bold text-purple-300">Proposta: ${escapeHtml(q.action||'MANTER')}</div>
           <p class="text-sm mt-1">${escapeHtml(q.reason||'Sem justificativa disponível.')}</p>
           <p class="text-xs muted mt-2">Confiança mínima: ${escapeHtml(q.from)}% → ${escapeHtml(q.to)}%</p>
-          <div class="flex gap-2 mt-3"><button id="brain-keep" class="btn btn-secondary text-xs">MANTER</button><button id="brain-change" class="btn btn-primary text-xs" ${q.action==='MUDAR'?'':'disabled'}>MUDAR</button></div>
+          <div class="flex gap-2 mt-3"><button id="brain-keep" class="btn btn-secondary text-xs">MANTER</button><button id="brain-change" class="btn btn-primary text-xs">MUDAR</button></div>
         </div>`;
         $('brain-keep').onclick=()=>decideBrain(p.id,'MANTER');
         $('brain-change').onclick=()=>decideBrain(p.id,'MUDAR');
       }else{
         $('quantum-proposal').innerHTML='<p class="text-sm muted">Aguardando seis operações encerradas ou decisão da proposta atual.</p>';
       }
-      $('quantum-history').textContent=(r.history||[]).map(x=>`${x.asset||'—'} ${x.direction||''}: ${x.result}`).join(' · ');
+      const six=(r.history||[]).slice(-6);
+      $('quantum-history').innerHTML=six.length?`<h3 class="font-bold text-sm mb-2">Histórico das seis operações</h3><div class="space-y-2">${six.map((x,i)=>`<div class="rounded-lg border border-slate-700/70 bg-slate-950/50 p-3"><div class="flex flex-wrap justify-between gap-2"><strong>${i+1}. ${escapeHtml(x.asset||'—')}</strong><span class="${resultClass(x.result)}">${escapeHtml(x.result||'PENDENTE')}</span></div><div class="text-xs muted mt-1">${escapeHtml(directionLabel(x.direction))} · Confiança ${x.confidence==null?'—':escapeHtml(x.confidence)+'%'} · ${escapeHtml(dateFmt(x.ts||x.timestamp||x.created_at))}</div>${x.analysis||x.reason?`<p class="text-xs muted mt-2">${escapeHtml(x.analysis||x.reason)}</p>`:''}</div>`).join('')}</div>`:'<p class="text-xs muted">Ainda não há operações encerradas para exibir.</p>';
     }catch(e){$('quantum-summary').textContent='Não foi possível carregar o Quantum Brain: '+e.message}
   }
   async function decideBrain(id,decision){
