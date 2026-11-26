@@ -1,135 +1,131 @@
-import csv
-import logging
-import time
-from dataclasses import dataclass, asdict
-from typing import Callable, Iterable, Iterator, List, Optional
+"""Scanner leve e independente do motor operacional Purple Signal.
 
-import requests
+A pontuação usa somente OHLCV. O payout real é um filtro rígido em conta real;
+em modo simulado, payout é desconhecido e o filtro fica explicitamente neutro.
+"""
+from __future__ import annotations
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("scanner")
+from typing import Any
+import math
+import numpy as np
+import pandas as pd
 
-
-# Fonte oficial da lista de ativos negociados na B3.
-UNIVERSE_URL = "https://arquivos.b3.com.br/api/download/requestname?fileName=InstrumentsConsolidated&language=pt-BR"
-QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
-
-BATCH_SIZE = 50
-MAX_RETRIES = 3
-RETRY_BACKOFF_SECONDS = 2.0
-REQUEST_TIMEOUT = 15
-OUTPUT_FILE = "ranking.csv"
+MIN_CANDLES = 60
+MIN_SCORE = 55
+MIN_PAYOUT = 0.86
 
 
-@dataclass
-class AssetScore:
-    symbol: str
-    price: float
-    change_percent: float
-    volume: int
-    score: float
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else default
+    except (TypeError, ValueError):
+        return default
 
 
-def fetch_universe(session: requests.Session) -> List[str]:
-    """Retorna a lista completa de tickers, sem duplicados e em ordem estável."""
-    response = session.get(UNIVERSE_URL, timeout=REQUEST_TIMEOUT)
-    response.raise_for_status()
-    symbols = set()
-    for line in response.text.splitlines()[1:]:
-        parts = line.split(";")
-        if not parts:
-            continue
-        ticker = parts[0].strip().upper()
-        if ticker and ticker.isalnum():
-            symbols.add(f"{ticker}.SA")
-    ordered = sorted(symbols)
-    log.info("Universo carregado: %d ativos", len(ordered))
-    return ordered
+def score_asset(
+    candles: list[dict],
+    payout: float | None = None,
+    simulated: bool = False,
+    min_score: int = MIN_SCORE,
+    min_payout: float = MIN_PAYOUT,
+) -> dict:
+    """Avalia rapidamente um ativo; não emite sinal CALL/PUT nem autoriza ordens."""
+    result = {
+        "qualified": False, "score": 0, "direction_bias": "NEUTRO",
+        "payout": payout, "payout_ok": bool(simulated or (payout is not None and payout >= min_payout)),
+        "criteria": {}, "reason": "DADOS_INSUFICIENTES",
+    }
+    if len(candles or []) < MIN_CANDLES:
+        return result
 
+    df = pd.DataFrame(candles[-60:])
+    required = {"open", "high", "low", "close"}
+    if not required.issubset(df.columns):
+        result["reason"] = "OHLC_INCOMPLETO"
+        return result
+    for col in ("open", "high", "low", "close"):
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.replace([np.inf, -np.inf], np.nan).dropna(subset=["open", "high", "low", "close"])
+    if len(df) < MIN_CANDLES:
+        result["reason"] = "OHLC_INVALIDO"
+        return result
 
-def chunked(items: List[str], size: int) -> Iterator[List[str]]:
-    for start in range(0, len(items), size):
-        yield items[start:start + size]
+    close = df["close"].to_numpy(dtype=float)
+    open_ = df["open"].to_numpy(dtype=float)
+    high = df["high"].to_numpy(dtype=float)
+    low = df["low"].to_numpy(dtype=float)
+    ranges = np.maximum(high - low, 1e-12)
+    bodies = np.abs(close - open_) / ranges
+    signed = np.sign(close - open_)
+    nonflat = signed[signed != 0]
+    flow = float(np.mean(nonflat[-12:])) if len(nonflat) else 0.0
+    direction = "CALL" if flow >= 0.25 else "PUT" if flow <= -0.25 else "NEUTRO"
 
+    # Tendência simples por inclinação da regressão normalizada.
+    x = np.arange(len(close), dtype=float)
+    slope = float(np.polyfit(x, close, 1)[0])
+    price_scale = max(abs(float(np.mean(close))), 1e-12)
+    trend_strength = abs(slope) * (len(close) - 1) / price_scale
+    trend_direction = "CALL" if slope > 0 else "PUT" if slope < 0 else "NEUTRO"
 
-def get_with_retry(session: requests.Session, url: str, params: dict) -> Optional[dict]:
-    """Faz a requisição com retentativas e backoff exponencial."""
-    delay = RETRY_BACKOFF_SECONDS
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            response = session.get(url, params=params, timeout=REQUEST_TIMEOUT)
-            if response.status_code == 429:
-                raise requests.HTTPError("limite de requisições atingido")
-            response.raise_for_status()
-            return response.json()
-        except (requests.RequestException, ValueError) as exc:
-            log.warning("Tentativa %d/%d falhou: %s", attempt, MAX_RETRIES, exc)
-            if attempt < MAX_RETRIES:
-                time.sleep(delay)
-                delay *= 2
-    return None
+    criteria: dict[str, dict] = {}
+    score = 0.0
 
+    flow_points = min(20.0, abs(flow) * 25.0)
+    criteria["fluxo_candles"] = {"value": round(flow, 3), "points": round(flow_points, 1), "max": 20}
+    score += flow_points
 
-def score_quote(quote: dict) -> Optional[AssetScore]:
-    """Converte uma cotação bruta em pontuação. Ignora ativos sem preço válido."""
-    price = quote.get("regularMarketPrice")
-    change = quote.get("regularMarketChangePercent")
-    volume = quote.get("regularMarketVolume") or 0
-    if price is None or change is None or price <= 0:
-        return None
-    # Pontuação simples: variação ponderada pelo logaritmo do volume.
-    import math
-    score = float(change) * math.log10(volume + 10)
-    return AssetScore(
-        symbol=quote.get("symbol", ""),
-        price=float(price),
-        change_percent=float(change),
-        volume=int(volume),
-        score=round(score, 4),
-    )
+    trend_points = min(20.0, trend_strength * 1800.0)
+    criteria["tendencia"] = {
+        "direction": trend_direction, "strength": round(trend_strength, 5),
+        "points": round(trend_points, 1), "max": 20,
+    }
+    score += trend_points
 
+    volume = pd.to_numeric(df.get("volume", pd.Series(dtype=float)), errors="coerce").fillna(0).clip(lower=0)
+    if len(volume) and float(volume.median()) > 0:
+        vol_ratio = float(volume.tail(5).mean() / max(float(volume.median()), 1e-12))
+        volume_points = 15.0 if vol_ratio >= 0.8 else 10.0 if vol_ratio >= 0.5 else 3.0
+    else:
+        vol_ratio, volume_points = None, 7.5  # feed sem volume: neutro, não reprova sozinho
+    criteria["volume"] = {"ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
+                          "points": volume_points, "max": 15}
+    score += volume_points
 
-def scan(symbols: Iterable[str], session: requests.Session,
-         progress: Optional[Callable[[int, int], None]] = None) -> List[AssetScore]:
-    symbols = list(symbols)
-    results: List[AssetScore] = []
-    failed_batches = 0
-    total = (len(symbols) + BATCH_SIZE - 1) // BATCH_SIZE
-    for index, batch in enumerate(chunked(symbols, BATCH_SIZE), start=1):
-        payload = get_with_retry(session, QUOTE_URL, {"symbols": ",".join(batch)})
-        if payload is None:
-            failed_batches += 1
-            log.error("Lote %d/%d descartado após retentativas", index, total)
-            continue
-        quotes = payload.get("quoteResponse", {}).get("result", [])
-        for quote in quotes:
-            scored = score_quote(quote)
-            if scored:
-                results.append(scored)
-        if progress:
-            progress(index, total)
-    log.info("Lotes com falha: %d de %d", failed_batches, total)
-    return results
+    returns = np.diff(close) / np.maximum(np.abs(close[:-1]), 1e-12)
+    volatility = float(np.std(returns[-20:])) if len(returns) >= 20 else 0.0
+    volatility_points = 15.0 if volatility > 0.00002 else 7.0 if volatility > 0.000005 else 0.0
+    criteria["volatilidade"] = {"return_std": round(volatility, 7),
+                                "points": volatility_points, "max": 15}
+    score += volatility_points
 
+    body_mean = float(np.mean(bodies[-12:]))
+    strength_points = min(15.0, body_mean * 18.75)
+    criteria["forca_candles"] = {"body_ratio": round(body_mean, 3),
+                                 "points": round(strength_points, 1), "max": 15}
+    score += strength_points
 
-def save_ranking(results: List[AssetScore], path: str = OUTPUT_FILE) -> None:
-    ordered = sorted(results, key=lambda r: r.score, reverse=True)
-    with open(path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(asdict(ordered[0]).keys()) if ordered else ["symbol"])
-        writer.writeheader()
-        for item in ordered:
-            writer.writerow(asdict(item))
-    log.info("Ranking salvo em %s com %d ativos", path, len(ordered))
+    # Regularidade: penaliza alternância excessiva e pavios dominantes.
+    last_signs = np.sign(np.diff(close[-13:]))
+    alternation = float(np.mean(last_signs[1:] != last_signs[:-1])) if len(last_signs) > 1 else 0.5
+    wick_ratio = float(np.mean(1.0 - bodies[-12:]))
+    regularity = max(0.0, 1.0 - 0.65 * alternation - 0.35 * wick_ratio)
+    regularity_points = regularity * 15.0
+    criteria["regularidade"] = {"alternation": round(alternation, 3),
+                                "wick_ratio": round(wick_ratio, 3),
+                                "points": round(regularity_points, 1), "max": 15}
+    score += regularity_points
 
-
-def main() -> None:
-    with requests.Session() as session:
-        session.headers.update({"User-Agent": "Mozilla/5.0 scanner/2.0"})
-        universe = fetch_universe(session)
-        results = scan(universe, session,
-                       progress=lambda done, total: log.info("Progresso: %d/%d lotes", done, total))
-    save_ranking(results)
-
-
-if __name__ == "__main__":
-    main()
+    payout_ok = simulated or (payout is not None and payout >= min_payout)
+    qualified = payout_ok and score >= min_score
+    result.update({
+        "qualified": bool(qualified), "score": round(score, 1),
+        "direction_bias": direction if direction != "NEUTRO" else trend_direction,
+        "payout": payout, "payout_ok": bool(payout_ok),
+        "criteria": criteria,
+        "reason": "APROVADO_NO_SCANNER" if qualified else
+                  "PAYOUT_ABAIXO_DE_86" if not payout_ok and payout is not None else
+                  "PAYOUT_NAO_DISPONIVEL" if not payout_ok else "PONTUACAO_INSUFICIENTE",
+    })
+    return result
