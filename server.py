@@ -51,10 +51,12 @@ from broker import (
     disconnect_broker,
     get_candles,
     get_candles_many,
+    get_payouts,
     place_trade,
     refresh_balance,
 )
 from strategy import analyze_candles, sma
+from scanner import score_asset, MIN_SCORE as SCANNER_MIN_SCORE, MIN_PAYOUT as SCANNER_MIN_PAYOUT
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +253,9 @@ def _state(user_id: str) -> dict:
             "candles": {},
             "candle_fetch_ts": {},
             "analysis_cache": {},
-            "scan_progress": {"total": 0, "fetched": 0, "analyzed": 0, "remaining": 0, "errors": 0},
+            "scan_progress": {"total": 0, "fetched": 0, "analyzed": 0, "qualified": 0, "remaining": 0, "errors": 0},
+            "scanner_min_score": SCANNER_MIN_SCORE,
+            "scanner_min_payout": SCANNER_MIN_PAYOUT,
             "last_signal_candle": {},
             "message": "Aguardando início do scanner",
             "session_id": new_session_id(),
@@ -930,16 +934,24 @@ async def _scan_loop(user_id: str) -> None:
             state["timeframe"] = "M1"
             tf_seconds = TIMEFRAME_SECONDS["M1"]
             assets = list(session.assets)
-            # Prioriza primeiro os ativos que já lideravam o ranking anterior;
-            # o worker transmite cada resposta individual assim que fica pronta.
+            # Ordenação estável, sem list.index() dentro do sort.
             previous_order = {
                 item.get("asset"): idx
                 for idx, item in enumerate(state.get("ranking") or [])
                 if item.get("asset")
             }
-            assets.sort(key=lambda asset: previous_order.get(asset, len(previous_order) + assets.index(asset)))
+            original_order = {asset: idx for idx, asset in enumerate(assets)}
+            assets.sort(key=lambda asset: (
+                previous_order.get(asset, len(previous_order) + original_order[asset]),
+                original_order[asset],
+            ))
+            try:
+                payouts = await get_payouts(session)
+            except Exception:
+                logger.exception("Falha ao atualizar payout; sem payout real os ativos serão bloqueados")
+                payouts = dict(getattr(session, "payouts", {}) or {})
             progress = {
-                "total": len(assets), "fetched": 0, "analyzed": 0,
+                "total": len(assets), "fetched": 0, "analyzed": 0, "qualified": 0,
                 "remaining": len(assets), "errors": 0,
             }
             state["scan_progress"] = dict(progress)
@@ -955,6 +967,7 @@ async def _scan_loop(user_id: str) -> None:
                     ranking_by_asset.values(),
                     key=lambda item: (
                         bool(item.get("signal_ready")),
+                        float(item.get("scanner_score") or 0),
                         float(item.get("confidence") or 0),
                         int(item.get("candle_ts") or 0),
                     ),
@@ -995,31 +1008,47 @@ async def _scan_loop(user_id: str) -> None:
 
                 closed = candle_cache.get(asset, [])
                 if closed:
-                    cache_for_asset = analysis_caches.setdefault(asset, {})
-                    analysis = _analyze_last_three_closed(closed, cache_for_asset)
-                    direction = str(analysis.get("direction", "NEUTRO")).upper()
-                    is_ready = bool(analysis.get("ready"))
-                    is_confirmed = is_ready and direction in {"CALL", "PUT"}
-                    item = {
-                        "asset": asset,
-                        "market_type": market_type_for_asset(asset),
-                        "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
-                        "candle_ts": int(closed[-1]["ts"]),
-                        "confirmation_candle_timestamps": [int(c.get("ts", 0)) for c in closed[-3:]],
-                        "signal_ready": is_confirmed,
-                        "status": (
-                            "AGUARDANDO_CONFIRMACAO_FINAL" if is_confirmed and analysis.get("pending_final_confirmation")
-                            else "CONFIRMADO" if is_confirmed
-                            else "AGUARDANDO_CONFIRMACAO" if is_ready
-                            else "AGUARDANDO_DADOS"
-                        ),
-                        **analysis,
-                    }
-                    ranking_by_asset[asset] = item
-                    if is_confirmed:
-                        signal_by_asset[asset] = item
-                    else:
+                    payout = payouts.get(asset) if not session.simulated else None
+                    screening = score_asset(
+                        closed, payout=payout, simulated=session.simulated,
+                        min_score=SCANNER_MIN_SCORE, min_payout=SCANNER_MIN_PAYOUT,
+                    )
+                    if not screening["qualified"]:
+                        ranking_by_asset.pop(asset, None)
                         signal_by_asset.pop(asset, None)
+                    else:
+                        progress["qualified"] += 1
+                        # O motor operacional completo só recebe ativos pré-aprovados.
+                        cache_for_asset = analysis_caches.setdefault(asset, {})
+                        analysis = _analyze_last_three_closed(closed, cache_for_asset)
+                        direction = str(analysis.get("direction", "NEUTRO")).upper()
+                        is_ready = bool(analysis.get("ready"))
+                        is_confirmed = is_ready and direction in {"CALL", "PUT"}
+                        item = {
+                            "asset": asset,
+                            "market_type": market_type_for_asset(asset),
+                            "market_label": "OTC" if market_type_for_asset(asset) == "otc" else "Mercado Aberto",
+                            "candle_ts": int(closed[-1]["ts"]),
+                            "scanner_score": screening["score"],
+                            "scanner_direction_bias": screening["direction_bias"],
+                            "scanner_payout": screening["payout"],
+                            "scanner_criteria": screening["criteria"],
+                            "scanner_status": screening["reason"],
+                            "confirmation_candle_timestamps": [int(c.get("ts", 0)) for c in closed[-3:]],
+                            "signal_ready": is_confirmed,
+                            "status": (
+                                "AGUARDANDO_CONFIRMACAO_FINAL" if is_confirmed and analysis.get("pending_final_confirmation")
+                                else "CONFIRMADO" if is_confirmed
+                                else "AGUARDANDO_CONFIRMACAO" if is_ready
+                                else "AGUARDANDO_DADOS"
+                            ),
+                            **analysis,
+                        }
+                        ranking_by_asset[asset] = item
+                        if is_confirmed:
+                            signal_by_asset[asset] = item
+                        else:
+                            signal_by_asset.pop(asset, None)
 
                 progress["analyzed"] += 1
                 progress["remaining"] = max(0, progress["total"] - progress["analyzed"])
@@ -1036,6 +1065,7 @@ async def _scan_loop(user_id: str) -> None:
                 ranking_by_asset.values(),
                 key=lambda item: (
                     bool(item.get("signal_ready")),
+                    float(item.get("scanner_score") or 0),
                     float(item.get("confidence") or 0),
                     int(item.get("candle_ts") or 0),
                 ),
@@ -1076,13 +1106,21 @@ async def _scan_loop(user_id: str) -> None:
                     )
 
             elif not signal_results:
-                state["message"] = (
-                    f"Scanner analisando {len(ranking_results)} ativo(s) "
-                    f"(Mercado Aberto: {len(session.market_assets.get('open', []))}; "
-                    f"OTC: {len(session.market_assets.get('otc', []))}); "
-                    "aguardando confirmação técnica para gerar sinais."
-                    if ranking_results else "Aguardando candles confirmados da corretora..."
-                )
+                if not session.simulated and not payouts:
+                    state["message"] = (
+                        "A corretora não forneceu payout Turbo nesta consulta. "
+                        "Por segurança, nenhum ativo foi liberado pelo filtro mínimo de 86%."
+                    )
+                else:
+                    state["message"] = (
+                        f"Scanner analisando {len(ranking_results)} ativo(s) "
+                        f"(Mercado Aberto: {len(session.market_assets.get('open', []))}; "
+                        f"OTC: {len(session.market_assets.get('otc', []))}); "
+                        f"{progress.get('qualified', 0)} aprovado(s) no pré-scanner "
+                        f"(nota mínima {SCANNER_MIN_SCORE}; payout mínimo 86% em conta real), "
+                        "aguardando confirmação técnica."
+                        if ranking_results else "Nenhum ativo passou pelo pré-scanner; aguardando nova leitura."
+                    )
 
             await _process_delayed_entries(user_id, state, session)
             await _settle_pending(user_id, session)
@@ -1468,6 +1506,11 @@ async def scan_state(user=Depends(get_current_user)):
         "best": state["best"],
         "ranking": state["ranking"],
         "scan_progress": state.get("scan_progress", {}),
+        "scanner": {
+            "minimum_score": state.get("scanner_min_score", SCANNER_MIN_SCORE),
+            "minimum_payout": state.get("scanner_min_payout", SCANNER_MIN_PAYOUT),
+            "payout_filter": "DESATIVADO_NO_SIMULADO" if (session and session.simulated) else "MINIMO_86_PORCENTO",
+        },
         "asset_counts": asset_counts,
         "message": state["message"],
         "daily_profit": state["daily_profit"],
