@@ -125,6 +125,7 @@ class BrokerConnectIn(BaseModel):
 class ScanStartIn(BaseModel):
     timeframe: str = Field(default="M1", pattern="^M1$")
     min_confidence: int = Field(default=60, ge=50, le=99)
+    mode: str = Field(default="scanner", pattern="^(scanner|semi_auto)$")
     auto_trade: bool = False
     amount: float = Field(default=2.0, ge=1, le=10000)
     target_gain: float = Field(default=0.0, ge=0, le=100000000)
@@ -240,6 +241,7 @@ def _state(user_id: str) -> dict:
             "timeframe": "M1",
             "min_confidence": 60,
             "auto_trade": False,
+            "mode": "scanner",
             "amount": 2.0,
             "target_gain": 0.0,
             "max_loss": 0.0,
@@ -450,6 +452,7 @@ def _signal_doc(
         "broker": session.broker,
         "simulated": session.simulated,
         "account_type": session.account_type,
+        "mode_at_creation": state.get("mode", "scanner"),
         "indicators": best.get("indicators", {}),
         "brain_snapshot": best.get("brain_snapshot"),
         "ts": now.isoformat(),
@@ -459,7 +462,13 @@ def _signal_doc(
             seconds=TIMEFRAME_SECONDS[tf] * (3 if state.get("auto_trade") else 1)
         )).isoformat(),
         "result": "PENDENTE",
-        "approval_status": "AGUARDANDO_REAVALIACAO" if state.get("auto_trade") else "AGUARDANDO_CONFIRMACAO",
+        "approval_status": (
+            "AGUARDANDO_REAVALIACAO" if state.get("mode") == "automatico"
+            else "AGUARDANDO_APROVACAO" if state.get("mode") == "semi_auto"
+            else "SOMENTE_SCANNER"
+        ),
+        "approval_expires_at": (now + timedelta(seconds=TIMEFRAME_SECONDS[tf])).isoformat(),
+        "approval_used": False,
         "entry_review": {
             "status": "AGUARDANDO_CONFIRMACAO_FINAL" if best.get("pending_final_confirmation") else ("AGUARDANDO_CANDLE_1" if state.get("auto_trade") else "NAO_APLICAVEL"),
             "original_direction": best["direction"],
@@ -516,7 +525,16 @@ async def _auto_trade(
     manual_confirmation: bool = False,
 ) -> bool:
     """Executa ordem somente após autorização manual ou modo automático autenticado."""
-    if not state.get("auto_trade") and not manual_confirmation:
+    if state.get("mode") == "automatico":
+        if not state.get("auto_trade") or manual_confirmation:
+            state["message"] = "Ordem bloqueada: autorização automática não corresponde ao modo ativo."
+            return False
+    elif state.get("mode") == "semi_auto":
+        if not manual_confirmation:
+            state["message"] = "Ordem bloqueada: o sinal exige aprovação individual."
+            return False
+    else:
+        state["message"] = "Modo Scanner: nenhuma ordem pode ser enviada."
         return False
     if state.get("paused"):
         state["message"] = "Robô pausado: nenhuma nova ordem será enviada."
@@ -774,7 +792,7 @@ async def _settle_pending(user_id: str, session: BrokerSession) -> None:
     """Liquida sinais vencidos; ordens reais usam o resultado informado pela corretora."""
     now = utc_now()
     await db.signals.update_many(
-        {"user_id": user_id, "result": "PENDENTE", "approval_status": "AGUARDANDO_CONFIRMACAO", "expires_at": {"$lte": now.isoformat()}},
+        {"user_id": user_id, "result": "PENDENTE", "approval_status": {"$in": ["AGUARDANDO_APROVACAO", "AGUARDANDO_CONFIRMACAO"]}, "approval_expires_at": {"$lte": now.isoformat()}},
         {"$set": {"result": "EXPIRADO", "approval_status": "EXPIRADO", "settled_at": now.isoformat()}},
     )
     pending = await db.signals.find(
@@ -1154,6 +1172,7 @@ async def _start_scan_with_config(
     max_loss: float,
     new_session: bool,
     auto_authorized: bool = False,
+    mode: Optional[str] = None,
 ) -> dict:
     if timeframe != "M1":
         raise HTTPException(status_code=422, detail="O Purple Signal opera exclusivamente no timeframe M1.")
@@ -1197,6 +1216,7 @@ async def _start_scan_with_config(
             "timeframe": timeframe,
             "min_confidence": min_confidence,
             "auto_trade": auto_trade,
+            "mode": "automatico" if auto_trade else (mode or "scanner"),
             "amount": amount,
             "target_gain": target_gain,
             "max_loss": max_loss,
@@ -1429,6 +1449,7 @@ async def scan_start(
         target_gain=payload.target_gain,
         max_loss=payload.max_loss,
         new_session=True,
+        mode=payload.mode,
     )
 
 
@@ -1440,6 +1461,7 @@ async def scan_stop(user=Depends(get_current_user)):
     state = _state(user_id)
     state["paused"] = False
     state["auto_trade"] = False
+    state["mode"] = "scanner"
     state["message"] = "Scanner parado"
 
     return {"ok": True, "running": False, "message": state["message"]}
@@ -1477,6 +1499,7 @@ async def scan_state(user=Depends(get_current_user)):
         "timeframe": tf,
         "min_confidence": state["min_confidence"],
         "auto_trade": state["auto_trade"],
+        "mode": state.get("mode", "scanner"),
         "auto_trade_password_configured": bool(os.environ.get("AUTO_TRADE_PASSWORD")),
         "amount": state["amount"],
         "target_gain": state["target_gain"],
@@ -1530,7 +1553,7 @@ async def robot_start(
     if state["running"]:
         if state.get("risk_halted"):
             raise HTTPException(status_code=423, detail="Robô bloqueado pela proteção diária: " + state["risk_reason"])
-        state.update({"auto_trade": True, "paused": False, "amount": payload.amount,
+        state.update({"auto_trade": True, "mode": "automatico", "paused": False, "amount": payload.amount,
                       "target_gain": payload.target_gain, "max_loss": payload.max_loss,
                       "timeframe": "M1"})
         return {"ok": True, "message": "Robô automático autorizado e ativado", "running": True}
@@ -1539,6 +1562,7 @@ async def robot_start(
         user_id, timeframe="M1", min_confidence=state["min_confidence"],
         auto_trade=True, amount=payload.amount, target_gain=payload.target_gain,
         max_loss=payload.max_loss, new_session=True, auto_authorized=True,
+        mode="automatico",
     )
 
 
@@ -1634,10 +1658,93 @@ def _history_stats(items: list[dict]) -> dict:
     }
 
 
+
+async def _approve_semi_auto_signal(signal_id: str, user_id: str) -> dict:
+    state = _state(user_id)
+    if state.get("mode") != "semi_auto" or state.get("auto_trade"):
+        raise HTTPException(status_code=409, detail="A aprovação individual só funciona no modo Semiautomático.")
+    if not state.get("running") or state.get("paused"):
+        raise HTTPException(status_code=409, detail="Scanner parado ou pausado; aprovação bloqueada.")
+    session = _BROKER_SESSIONS.get(user_id)
+    if not session or not session.connected:
+        raise HTTPException(status_code=400, detail="Corretora desconectada.")
+    now = iso_now()
+    pending = await db.signals.find_one({
+        "id": signal_id, "user_id": user_id, "result": "PENDENTE",
+        "approval_status": "AGUARDANDO_APROVACAO",
+        "approval_used": {"$ne": True},
+        "approval_expires_at": {"$gt": now},
+        "mode_at_creation": "semi_auto",
+    }, {"_id": 0})
+    if not pending:
+        raise HTTPException(status_code=409, detail="Este sinal expirou, já foi decidido ou não pertence ao modo Semiautomático.")
+    # Uma aprovação só vale para o ID do sinal recebido e é consumida atomicamente.
+    claimed = await db.signals.update_one({
+        "id": signal_id, "user_id": user_id, "result": "PENDENTE",
+        "approval_status": "AGUARDANDO_APROVACAO",
+        "approval_used": {"$ne": True},
+        "approval_expires_at": {"$gt": now},
+    }, {"$set": {
+        "approval_status": "EXECUTANDO",
+        "approval_used": True,
+        "approved_at": now,
+        "approval_token": str(uuid.uuid4()),
+    }})
+    if claimed.modified_count != 1:
+        raise HTTPException(status_code=409, detail="A aprovação já foi consumida por outra ação.")
+    candles = state.get("candles", {}).get(pending.get("asset")) or []
+    signal_ts = int(pending.get("candle_ts") or 0)
+    if len(candles) < 102 or not any(int(c.get("ts", 0)) > signal_ts for c in candles):
+        await db.signals.update_one({"id": signal_id, "user_id": user_id, "approval_status": "EXECUTANDO"},
+            {"$set": {"approval_status": "AGUARDANDO_NOVO_CANDLE", "result": "EXPIRADO", "settled_at": iso_now()}})
+        raise HTTPException(status_code=409, detail="O sinal ficou sem confirmação em um novo candle fechado; ele foi encerrado sem ordem.")
+    fresh = _analyze_last_three_closed(candles)
+    indicators = fresh.get("indicators") or {}
+    status = str(indicators.get("final_entry_confirmation", "NO_CANDIDATE")).upper()
+    direction = str(fresh.get("direction", "NEUTRO")).upper()
+    if not (fresh.get("ready") and direction in {"CALL", "PUT"}
+            and indicators.get("final_entry_confirmation_passed")
+            and status in {"APPROVED", "CONFIRMED_AFTER_OPPOSING_FORCE"}):
+        await db.signals.update_one({"id": signal_id, "user_id": user_id, "approval_status": "EXECUTANDO"},
+            {"$set": {"approval_status": "CONFIRMACAO_REPROVADA", "result": "EXPIRADO", "settled_at": iso_now()}})
+        raise HTTPException(status_code=409, detail="A confirmação técnica final não passou. Nenhuma ordem foi enviada.")
+    doc = dict(pending)
+    doc["direction"] = direction
+    doc["price"] = float(candles[-1].get("close", doc.get("price", 0)) or 0)
+    doc["entry_review"] = {
+        **(doc.get("entry_review") or {}),
+        "status": "APROVADO_INDIVIDUALMENTE",
+        "final_confirmation": status,
+        "final_confirmation_reason": indicators.get("final_entry_confirmation_reason"),
+    }
+    sent = await _auto_trade(user_id, state, session, doc, manual_confirmation=True)
+    trade = doc.get("trade") or {"status": "BLOQUEADA", "order_id": None}
+    accepted = bool(sent and trade.get("order_id") not in (None, ""))
+    await db.signals.update_one({"id": signal_id, "user_id": user_id, "approval_status": "EXECUTANDO"}, {"$set": {
+        "trade": trade, "direction": direction, "price": doc["price"],
+        "entry_review": doc["entry_review"],
+        "approval_status": "ORDEM_ACEITA" if accepted else "FALHA",
+        "result": "PENDENTE" if accepted else "FALHA",
+        "settled_at": None if accepted else iso_now(),
+        "broker_accepted_at": iso_now() if accepted else None,
+    }})
+    if not accepted:
+        raise HTTPException(status_code=502, detail=state.get("message", "A corretora não confirmou a ordem."))
+    return {"ok": True, "approval_status": "ORDEM_ACEITA", "trade": trade,
+            "message": "A corretora confirmou a ordem deste sinal. Nenhum sinal futuro foi autorizado."}
+
+
+@api.post("/signals/{signal_id}/approve")
+async def approve_semi_auto_signal(signal_id: str, user=Depends(get_current_user)):
+    return await _approve_semi_auto_signal(signal_id, user["id"])
+
+
 @api.post("/signals/{signal_id}/confirm")
 async def confirm_signal(signal_id: str, user=Depends(get_current_user)):
     user_id = user["id"]
     state = _state(user_id)
+    if state.get("mode") != "semi_auto":
+        raise HTTPException(status_code=409, detail="Confirmação manual indisponível fora do modo Semiautomático.")
     session = _BROKER_SESSIONS.get(user_id)
     if not session or not session.connected:
         raise HTTPException(status_code=400, detail="Conecte a corretora antes de confirmar o sinal.")
@@ -1701,13 +1808,115 @@ async def confirm_signal(signal_id: str, user=Depends(get_current_user)):
 @api.post("/signals/{signal_id}/reject")
 async def reject_signal(signal_id: str, payload: Optional[SignalDecisionIn] = None, user=Depends(get_current_user)):
     saved = await db.signals.update_one(
-        {"id": signal_id, "user_id": user["id"], "result": "PENDENTE", "approval_status": "AGUARDANDO_CONFIRMACAO"},
+        {"id": signal_id, "user_id": user["id"], "result": "PENDENTE", "approval_status": "AGUARDANDO_APROVACAO", "approval_used": {"$ne": True}},
         {"$set": {"result": "REJEITADO", "approval_status": "REJEITADO",
                   "rejected_at": iso_now(), "rejection_reason": payload.reason if payload else None}},
     )
     if saved.modified_count != 1:
         raise HTTPException(status_code=409, detail="Sinal não está mais aguardando confirmação.")
     return {"ok": True, "approval_status": "REJEITADO", "message": "Sinal rejeitado; nenhuma ordem foi enviada."}
+
+
+
+async def _quantum_brain_snapshot(user_id: str) -> dict:
+    closed = await db.signals.find(
+        {"user_id": user_id, "result": {"$in": ["WIN", "LOSS"]}},
+        {"_id": 0, "id": 1, "result": 1, "asset": 1, "direction": 1, "confidence": 1,
+         "indicators": 1, "brain_snapshot": 1, "settled_at": 1, "entry_review": 1},
+    ).sort("settled_at", DESCENDING).limit(6).to_list(6)
+    total = len(closed)
+    wins = sum(x.get("result") == "WIN" for x in closed)
+    losses = sum(x.get("result") == "LOSS" for x in closed)
+    latest = await db.strategy_brain_reviews.find_one(
+        {"user_id": user_id}, {"_id": 0}, sort=[("created_at", DESCENDING)]
+    )
+    pending = latest if latest and latest.get("status") == "AGUARDANDO_DECISAO" else None
+    proposal = None
+    if total == 6:
+        current = _state(user_id).get("min_confidence", 60)
+        if losses >= 4:
+            proposal = {
+                "action": "MUDAR",
+                "parameter": "min_confidence",
+                "from": current,
+                "to": min(85, current + 5),
+                "reason": f"{losses} perdas em 6 operações encerradas; proposta conservadora de elevar a confiança mínima em 5 pontos.",
+            }
+        elif wins >= 4:
+            proposal = {
+                "action": "MANTER", "parameter": "min_confidence",
+                "from": current, "to": current,
+                "reason": f"{wins} vitórias em 6 operações; amostra curta, sem evidência suficiente para alterar a configuração.",
+            }
+        else:
+            proposal = {
+                "action": "MANTER", "parameter": "min_confidence",
+                "from": current, "to": current,
+                "reason": "Resultados mistos em 6 operações; amostra curta e inconclusiva. Recomenda-se manter a configuração.",
+            }
+        if not latest or latest.get("based_on_signal_ids") != [x["id"] for x in closed]:
+            review = {
+                "id": str(uuid.uuid4()), "user_id": user_id,
+                "status": "AGUARDANDO_DECISAO", "created_at": iso_now(),
+                "based_on_signal_ids": [x["id"] for x in closed],
+                "sample": {"total": total, "wins": wins, "losses": losses},
+                "proposal": proposal,
+                "evidence": [{"signal_id": x["id"], "result": x["result"],
+                              "asset": x.get("asset"), "direction": x.get("direction"),
+                              "confidence": x.get("confidence"),
+                              "indicators": x.get("indicators") or {},
+                              "entry_review": x.get("entry_review") or {}} for x in closed],
+            }
+            await db.strategy_brain_reviews.insert_one(review)
+            pending = {k: v for k, v in review.items() if k != "_id"}
+    return {
+        "completed_operations": total, "wins": wins, "losses": losses,
+        "sample_note": "Seis operações são uma amostra inicial pequena; a proposta não representa garantia estatística.",
+        "pending_review": pending,
+        "latest_review": latest,
+        "history": [{"id": x["id"], "result": x["result"], "asset": x.get("asset"),
+                     "direction": x.get("direction"), "confidence": x.get("confidence"),
+                     "settled_at": x.get("settled_at")} for x in closed],
+    }
+
+
+@api.get("/quantum-brain")
+async def quantum_brain_state(user=Depends(get_current_user)):
+    return await _quantum_brain_snapshot(user["id"])
+
+
+@api.post("/quantum-brain/{review_id}/decision")
+async def quantum_brain_decision(review_id: str, payload: dict, user=Depends(get_current_user)):
+    decision = str(payload.get("decision", "")).upper()
+    if decision not in {"MANTER", "MUDAR"}:
+        raise HTTPException(status_code=422, detail="Decisão deve ser MANTER ou MUDAR.")
+    review = await db.strategy_brain_reviews.find_one({
+        "id": review_id, "user_id": user["id"], "status": "AGUARDANDO_DECISAO"
+    }, {"_id": 0})
+    if not review:
+        raise HTTPException(status_code=409, detail="Esta proposta já foi decidida ou não existe.")
+    proposal = review.get("proposal") or {}
+    state = _state(user["id"])
+    old_value = state.get("min_confidence", 60)
+    if decision == "MUDAR":
+        if proposal.get("action") != "MUDAR" or proposal.get("parameter") != "min_confidence":
+            raise HTTPException(status_code=409, detail="A proposta atual não contém alteração aplicável.")
+        new_value = int(proposal.get("to", old_value))
+        if not 50 <= new_value <= 99:
+            raise HTTPException(status_code=422, detail="Parâmetro proposto fora do intervalo permitido.")
+        state["min_confidence"] = new_value
+    else:
+        new_value = old_value
+    saved = await db.strategy_brain_reviews.update_one(
+        {"id": review_id, "user_id": user["id"], "status": "AGUARDANDO_DECISAO"},
+        {"$set": {"status": "APROVADO_MUDAR" if decision == "MUDAR" else "APROVADO_MANTER",
+                  "decision": decision, "decided_at": iso_now(),
+                  "applied_change": {"parameter": "min_confidence", "old": old_value, "new": new_value}}},
+    )
+    if saved.modified_count != 1:
+        raise HTTPException(status_code=409, detail="A proposta foi decidida em outra ação.")
+    return {"ok": True, "decision": decision, "old_value": old_value, "new_value": new_value,
+            "message": "Alteração aplicada após sua aprovação." if decision == "MUDAR" else "Configuração mantida conforme sua decisão."}
 
 
 @api.post("/signals/reset-study")
