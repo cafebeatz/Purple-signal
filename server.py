@@ -45,6 +45,7 @@ from broker import (
     SIM_PAYOUT,
     TIMEFRAME_SECONDS,
     BrokerSession,
+    TradeConfirmationUnknown,
     market_type_for_asset,
     check_trade,
     connect_broker,
@@ -499,8 +500,8 @@ async def _auto_trade(
     doc: dict,
     *,
     manual_confirmation: bool = False,
-) -> bool:
-    """Executa ordem somente após autorização manual ou modo automático autenticado."""
+) -> bool | None:
+    """Executa ordem; None indica que o envio ficou sem confirmação da corretora."""
     if not state.get("auto_trade") and not manual_confirmation:
         return False
     if state.get("paused"):
@@ -550,6 +551,20 @@ async def _auto_trade(
             f"{doc['direction']} {session.currency} {amount:.2f}"
         )
         return True
+    except TradeConfirmationUnknown as exc:
+        doc["trade"] = {
+            "order_id": None,
+            "amount": amount,
+            "status": "CONFIRMACAO_PENDENTE",
+            "confirmation_unknown": True,
+            "error": str(exc)[:300],
+            "profit": None,
+        }
+        state["message"] = (
+            "A corretora não confirmou o recebimento da ordem. "
+            "Confira o histórico da corretora antes de qualquer nova tentativa."
+        )
+        return None
     except ConnectionError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -741,15 +756,28 @@ async def _process_delayed_entries(user_id: str, state: dict, session: BrokerSes
             )
             raise
 
+        if sent is None:
+            final_approval_status = "CONFIRMACAO_PENDENTE"
+            final_result = "PENDENTE"
+            final_settled_at = None
+        elif sent:
+            final_approval_status = "AUTOMATICO_ENVIADO"
+            final_result = "PENDENTE"
+            final_settled_at = None
+        else:
+            final_approval_status = "FALHA"
+            final_result = "FALHA"
+            final_settled_at = iso_now()
+
         await db.signals.update_one(
             {"id": doc["id"], "user_id": user_id, "approval_status": "EXECUTANDO_REAVALIACAO"},
             {"$set": {
                 "trade": doc.get("trade"),
-                "approval_status": "AUTOMATICO_ENVIADO" if sent else "FALHA",
-                "result": "PENDENTE" if sent else "FALHA",
+                "approval_status": final_approval_status,
+                "result": final_result,
                 "entry_review": review,
                 "expires_at": doc["expires_at"],
-                "settled_at": None if sent else iso_now(),
+                "settled_at": final_settled_at,
             }},
         )
 
@@ -1629,14 +1657,25 @@ async def confirm_signal(signal_id: str, user=Depends(get_current_user)):
     })
     executed = await _auto_trade(user_id, state, session, doc, manual_confirmation=True)
     trade = doc.get("trade") or {"status": "BLOQUEADA", "order_id": None}
-    approval_status = "CONFIRMADO" if executed and trade.get("order_id") else "FALHA"
+    if executed is None:
+        approval_status = "CONFIRMACAO_PENDENTE"
+        result_status = "PENDENTE"
+    elif executed and trade.get("order_id"):
+        approval_status = "CONFIRMADO"
+        result_status = "PENDENTE"
+    else:
+        approval_status = "FALHA"
+        result_status = "FALHA"
     await db.signals.update_one(
         {"id": signal_id, "user_id": user_id, "approval_status": "EXECUTANDO"},
         {"$set": {"trade": trade, "direction": doc.get("direction"), "price": doc.get("price"),
                   "entry_review": doc.get("entry_review"), "approval_status": approval_status,
-                  "result": "PENDENTE" if approval_status == "CONFIRMADO" else "FALHA",
+                  "result": result_status,
                   "approved_at": iso_now()}},
     )
+    if executed is None:
+        return {"ok": False, "approval_status": approval_status, "trade": trade,
+                "message": state.get("message", "Confirmação da corretora pendente.")}
     if not executed:
         raise HTTPException(status_code=409, detail=state.get("message", "A ordem não foi enviada."))
     return {"ok": True, "approval_status": approval_status, "trade": trade, "message": "Confirmação registrada e ordem enviada."}
