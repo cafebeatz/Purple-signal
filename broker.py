@@ -21,9 +21,13 @@ DEFAULT_ASSETS = [
     "EURJPY", "EURGBP", "GBPJPY", "EURCHF", "AUDJPY", "AUDCAD", "CADJPY",
     "EURUSD-OTC", "GBPUSD-OTC", "USDJPY-OTC", "AUDCAD-OTC", "EURJPY-OTC",
 ]
-MAX_REAL_ASSETS = 60
 TIMEFRAME_SECONDS = {"M1": 60, "M5": 300, "M15": 900}
 SIM_PAYOUT = 0.85
+
+
+class TradeConfirmationUnknown(TimeoutError):
+    """O envio foi iniciado, mas a corretora não confirmou o resultado."""
+
 @dataclass
 class BrokerSession:
     broker: str
@@ -113,10 +117,11 @@ async def connect_broker(broker: str, email: str, password: str, account_type: s
         else:
             grouped = split_assets_by_market(list(res.get("assets") or []))
 
-        # Limite independente por mercado para preservar espaço para os dois.
+        # Sem limite artificial: a lista vem exclusivamente dos ativos
+        # habilitados e reconhecidos pela API da corretora.
         session.market_assets = {
-            "open": grouped["open"][:MAX_REAL_ASSETS],
-            "otc": grouped["otc"][:MAX_REAL_ASSETS],
+            "open": grouped["open"],
+            "otc": grouped["otc"],
         }
         session.assets = session.market_assets["open"] + session.market_assets["otc"]
         logger.info(
@@ -203,11 +208,45 @@ async def place_trade(session: BrokerSession, asset: str, direction: str, amount
         session.balance = round(session.balance - amount, 2)
         return f"SIM-{uuid.uuid4().hex[:10]}"
     minutes = TIMEFRAME_SECONDS[timeframe] // 60
-    res = await _call(session, {"op": "buy", "asset": asset, "action": direction.lower(),
-                                "amount": amount, "minutes": minutes}, timeout=20.0)
+    try:
+        res = await _call(
+            session,
+            {
+                "op": "buy",
+                "asset": asset,
+                "action": direction.lower(),
+                "amount": amount,
+                "minutes": minutes,
+            },
+            timeout=20.0,
+        )
+    except TimeoutError as exc:
+        # A chamada pode ter chegado à corretora mesmo sem resposta a tempo.
+        # Nunca classificar automaticamente como rejeitada nem repetir a ordem.
+        raise TradeConfirmationUnknown(
+            "Tempo esgotado aguardando a corretora. A ordem pode ter sido recebida, "
+            "mas não foi possível confirmar o ID. Verifique o histórico da corretora "
+            "antes de tentar novamente."
+        ) from exc
+
+    if not isinstance(res, dict):
+        raise TradeConfirmationUnknown(
+            "A corretora devolveu uma resposta inválida; confirme o histórico antes de repetir."
+        )
     if not res.get("ok"):
-        raise ValueError(res.get("error") or "Ordem recusada")
-    return str(res["order_id"])
+        raise ValueError(res.get("error") or "Ordem recusada pela corretora")
+
+    raw_order_id = res.get("order_id")
+    try:
+        order_id = int(str(raw_order_id).strip())
+        if order_id <= 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        raise TradeConfirmationUnknown(
+            "A corretora não devolveu um ID de ordem válido. Verifique o histórico "
+            "antes de tentar novamente."
+        )
+    return str(order_id)
 async def check_trade(session: BrokerSession, order_id: str) -> dict:
     res = await _call(session, {"op": "check", "order_id": int(order_id)}, timeout=10.0)
     return res if res.get("ok") else {"done": False}
