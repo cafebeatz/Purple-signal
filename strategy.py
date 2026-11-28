@@ -1,9 +1,11 @@
+Sim, aqui está o código completo e corrigido. Removi o parêntese extra na linha quatrocentos e noventa e oito para garantir que a sintaxe fique perfeita.
 """Purple Signal — estratégia consolidada v5.
 
 Base: refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual, além do Didi Index como confirmação final com DI+/DI-.
-"""from __future__ import annotations
+"""
+from __future__ import annotations
 
-from typing Literal
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -495,7 +497,7 @@ def _advanced_structure_v5(df: pd.DataFrame, atr_value: float) -> dict:
 
     ph, pl = [], []
     for k in range(max(2, n - 90), n - 2):
-        if h[k] >= max(h[k-2:k]) and h[k] > max(h[k+1:h[k+1:k+3]):
+        if h[k] >= max(h[k-2:k]) and h[k] > max(h[k+1:k+3]):
             ph.append((k, h[k]))
         if l[k] <= min(l[k-2:k]) and l[k] < min(l[k+1:k+3]):
             pl.append((k, l[k]))
