@@ -1,5 +1,4 @@
-Corrigi o erro de sintaxe na verificação dos pivôs, onde colchetes desbalanceados estavam impedindo a execução do código.
-Aqui está o código completo e corrigido para você copiar e colar novamente no seu projeto.
+
 """Purple Signal — estratégia consolidada v5 (Modificada).
 
 Base: Refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual. O Didi Index agora atua exclusivamente como filtro de confirmação de gatilho.
