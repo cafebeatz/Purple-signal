@@ -1,8 +1,6 @@
+"""Purple Signal — estratégia consolidada v5 (Modificada Avançada).
 
-"""Purple Signal — estratégia consolidada v5 (Modificada).
-
-Base: Refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual. O Didi Index agora atua exclusivamente como filtro de confirmação de gatilho.
-"""
+Base: KDJ 21, RSI 14 com extremos ajustados para 85/15, integração de Centro de Gravidade e Estocástico Dual calibrado. O Didi Index atua estritamente como confirmação de gatilho."""
 from __future__ import annotations
 
 from typing import Literal
@@ -61,16 +59,18 @@ def kdj_custom(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 
     return k, d, j
 
 
-def dual_stochastic(df: pd.DataFrame, fast_p: int = 5, slow_p: int = 21):
+def dual_stochastic_calibrated(df: pd.DataFrame, fast_p: int = 5, slow_p: int = 21):
+    # Estocástico Rápido com suavização leve
     low_fast = df.low.rolling(fast_p, min_periods=fast_p).min()
     high_fast = df.high.rolling(fast_p, min_periods=fast_p).max()
     spread_fast = (high_fast - low_fast).replace(0, np.nan)
     fast_k = (100 * (df.close - low_fast) / spread_fast).fillna(50).rolling(3).mean()
 
+    # Estocástico Lento com janela estendida para filtrar melhor lateralidade
     low_slow = df.low.rolling(slow_p, min_periods=slow_p).min()
     high_slow = df.high.rolling(slow_p, min_periods=slow_p).max()
     spread_slow = (high_slow - low_slow).replace(0, np.nan)
-    slow_k = (100 * (df.close - low_slow) / spread_slow).fillna(50).rolling(3).mean()
+    slow_k = (100 * (df.close - low_slow) / spread_slow).fillna(50).rolling(5).mean()
     
     return fast_k, slow_k
 
@@ -602,7 +602,7 @@ def analyze_candles(candles: list[dict]) -> dict:
     rsi14 = rsi(close, 14)
     cog_series = center_of_gravity(close, period=10)
     k, d, j = kdj_custom(high, low, close, period=21)
-    fast_stoch, slow_stoch = dual_stochastic(df, fast_p=5, slow_p=21)
+    fast_stoch, slow_stoch = dual_stochastic_calibrated(df, fast_p=5, slow_p=21)
     
     plus_di_series, minus_di_series = didi_index(high, low, close, period=14)
     didi_short_series, didi_long_series = didi_index(high, low, close, period=3) 
@@ -696,8 +696,9 @@ def analyze_candles(candles: list[dict]) -> dict:
         and float(macd_hist.iloc[i]) <= float(macd_hist.iloc[ip])
     )
     
-    rsi_bull = rsi_value <= 10 or (rsi_value < 45 and cog_value > 0)
-    rsi_bear = rsi_value >= 90 or (rsi_value > 55 and cog_value < 0)
+    # Zonas ajustadas para 85/15
+    rsi_bull = rsi_value <= 15 or (rsi_value < 45 and cog_value > 0)
+    rsi_bear = rsi_value >= 85 or (rsi_value > 55 and cog_value < 0)
     adx_confirms = adx_value >= 16
 
     ma_bull = (
@@ -712,8 +713,8 @@ def analyze_candles(candles: list[dict]) -> dict:
     )
     ema_direction = "CALL" if ma_bull else ("PUT" if ma_bear else "NEUTRO")
 
-    kdj_bull = (j_now <= 10 or (d_now > 20 and j_now > d_now)) and slow_stoch_val > 20
-    kdj_bear = (j_now >= 90 or (d_now < 80 and j_now < d_now)) and slow_stoch_val < 80
+    kdj_bull = (j_now <= 15 or (d_now > 20 and j_now > d_now)) and slow_stoch_val > 15
+    kdj_bear = (j_now >= 85 or (d_now < 80 and j_now < d_now)) and slow_stoch_val < 85
     kdj_direction = "CALL" if kdj_bull else ("PUT" if kdj_bear else "NEUTRO")
 
     confirms_for = {
@@ -985,13 +986,11 @@ def analyze_candles(candles: list[dict]) -> dict:
         )
 
         if direction != "NEUTRO":
-            di_cross_up = (didi_s_prev <= didi_l_prev) and (didi_s > didi_l)
-            di_cross_down = (didi_s_prev >= didi_l_prev) and (didi_s < didi_l)
+            # Condição suavizada do Didi: aceita se já estiver na direção e DMI confirmar, não apenas no candle do cruzamento
             extra_dmi_bull = dp > dm
             extra_dmi_bear = dm > dp
-            
-            didi_bull_confirmed = (didi_s > didi_l) and extra_dmi_bull
-            didi_bear_confirmed = (didi_s < didi_l) and extra_dmi_bear
+            didi_bull_confirmed = (didi_s >= didi_l) and extra_dmi_bull
+            didi_bear_confirmed = (didi_s <= didi_l) and extra_dmi_bear
             
             if direction == "CALL" and not didi_bull_confirmed:
                 direction = "NEUTRO"
@@ -1055,7 +1054,7 @@ def analyze_candles(candles: list[dict]) -> dict:
     )
 
     indicators = {
-        "strategy_version": "V5_MODIFIED_DIDI_TRIGGER_ONLY",
+        "strategy_version": "V5_MODIFIED_ADVANCED_IMPROVEMENTS",
         "price_action_pattern": advanced_structure["price_action_pattern"],
         "price_action_direction": advanced_structure["price_action_direction"],
         "bos_choch": advanced_structure["bos_choch"],
@@ -1147,15 +1146,15 @@ def analyze_candles(candles: list[dict]) -> dict:
         ),
         "rsi": round(rsi_value, 2),
         "rsi_status": (
-            "SOBRECOMPRA" if rsi_value >= 90 else
-            "SOBREVENDA" if rsi_value <= 10 else
+            "SOBRECOMPRA" if rsi_value >= 85 else
+            "SOBREVENDA" if rsi_value <= 15 else
             "COMPRA" if rsi_bull else
             "VENDA" if rsi_bear else
             "NEUTRO"
         ),
         "rsi_period": 14,
-        "rsi_overbought": 90,
-        "rsi_oversold": 10,
+        "rsi_overbought": 85,
+        "rsi_oversold": 15,
         "adx": round(adx_value, 2),
         "adx_status": (
             "FORTE" if adx_value >= 25 else
