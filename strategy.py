@@ -1,4 +1,5 @@
-
+Corrigi o erro de sintaxe na verificação dos pivôs, onde colchetes desbalanceados estavam impedindo a execução do código.
+Aqui está o código completo e corrigido para você copiar e colar novamente no seu projeto.
 """Purple Signal — estratégia consolidada v5 (Modificada).
 
 Base: Refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual. O Didi Index agora atua exclusivamente como filtro de confirmação de gatilho.
@@ -494,7 +495,7 @@ def _advanced_structure_v5(df: pd.DataFrame, atr_value: float) -> dict:
     for k in range(max(2, n - 90), n - 2):
         if h[k] >= max(h[k-2:k]) and h[k] > max(h[k+1:k+3]):
             ph.append((k, h[k]))
-        if l[k] <= min(l[k-2:k]) and l[k] < min(l[k+1:l[k] < min(l[k+1:k+3]):
+        if l[k] <= min(l[k-2:k]) and l[k] < min(l[k+1:k+3]):
             pl.append((k, l[k]))
     last_hi = ph[-1][1] if ph else None
     last_lo = pl[-1][1] if pl else None
@@ -984,10 +985,9 @@ def analyze_candles(candles: list[dict]) -> dict:
             and candle_body_ratio >= 0.20
         )
 
-        # Bloco de Confirmação Final: Didi Index movido estritamente para cá
         if direction != "NEUTRO":
-            di_cross_up = (didi_k_prev <= didi_l_prev) and (didi_k > didi_l) if "didi_k" in locals() else False
-            di_cross_down = (didi_k_prev >= didi_l_prev) and (didi_k < didi_l) if "didi_k" in locals() else False
+            di_cross_up = (didi_s_prev <= didi_l_prev) and (didi_s > didi_l)
+            di_cross_down = (didi_s_prev >= didi_l_prev) and (didi_s < didi_l)
             extra_dmi_bull = dp > dm
             extra_dmi_bear = dm > dp
             
