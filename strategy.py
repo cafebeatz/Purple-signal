@@ -1,6 +1,7 @@
-"""Purple Signal — estratégia consolidada v5.
 
-Base: refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual, além do Didi Index como confirmação final com DI+/DI-.
+"""Purple Signal — estratégia consolidada v5 (Modificada).
+
+Base: Refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual. O Didi Index agora atua exclusivamente como filtro de confirmação de gatilho.
 """
 from __future__ import annotations
 
@@ -75,13 +76,8 @@ def dual_stochastic(df: pd.DataFrame, fast_p: int = 5, slow_p: int = 21):
 
 
 def center_of_gravity(series: pd.Series, period: int = 10) -> pd.Series:
-    cog = pd.Series(index=series.index, dtype=float)
-    for i in range(period - 1, len(series)):
-        window = series.iloc[i - period + 1 : i + 1].values[::-1]
-        num = np.sum([(idx + 1) * val for idx, val in enumerate(window)])
-        den = np.sum(window)
-        cog.iloc[i] = -num / den if den != 0 else np.nan
-    return cog.fillna(0)
+    weights = np.arange(1, period + 1)
+    return -series.rolling(period).apply(lambda w: np.dot(w[::-1], weights) / w.sum(), raw=True).fillna(0)
 
 
 def _estimated_flow(df: pd.DataFrame, window: int = 12) -> float:
@@ -498,7 +494,7 @@ def _advanced_structure_v5(df: pd.DataFrame, atr_value: float) -> dict:
     for k in range(max(2, n - 90), n - 2):
         if h[k] >= max(h[k-2:k]) and h[k] > max(h[k+1:k+3]):
             ph.append((k, h[k]))
-        if l[k] <= min(l[k-2:k]) and l[k] < min(l[k+1:k+3]):
+        if l[k] <= min(l[k-2:k]) and l[k] < min(l[k+1:l[k] < min(l[k+1:k+3]):
             pl.append((k, l[k]))
     last_hi = ph[-1][1] if ph else None
     last_lo = pl[-1][1] if pl else None
@@ -720,13 +716,6 @@ def analyze_candles(candles: list[dict]) -> dict:
     kdj_bear = (j_now >= 90 or (d_now < 80 and j_now < d_now)) and slow_stoch_val < 80
     kdj_direction = "CALL" if kdj_bull else ("PUT" if kdj_bear else "NEUTRO")
 
-    extra_didi_cross_up = (didi_s_prev <= didi_l_prev) and (didi_s > didi_l)
-    extra_didi_cross_down = (didi_s_prev >= didi_l_prev) and (didi_s < didi_l)
-    extra_dmi_bull = dp > dm
-    extra_dmi_bear = dm > dp
-    extra_confirmation_bull = extra_didi_cross_up and extra_dmi_bull
-    extra_confirmation_bear = extra_didi_cross_down and extra_dmi_bear
-
     confirms_for = {
         "CALL": [
             macd_bull, rsi_bull, adx_confirms,
@@ -741,11 +730,6 @@ def analyze_candles(candles: list[dict]) -> dict:
         sum(bool(x) for x in confirms_for[direction])
         if direction != "NEUTRO" else 0
     )
-    
-    if direction == "CALL" and not extra_confirmation_bull:
-        direction = "NEUTRO"
-    elif direction == "PUT" and not extra_confirmation_bear:
-        direction = "NEUTRO"
 
     distance_from_ema21_atr = (
         (price - ma21_value) / atr_value if atr_value > 0 else 0.0
@@ -1000,6 +984,23 @@ def analyze_candles(candles: list[dict]) -> dict:
             and candle_body_ratio >= 0.20
         )
 
+        # Bloco de Confirmação Final: Didi Index movido estritamente para cá
+        if direction != "NEUTRO":
+            di_cross_up = (didi_k_prev <= didi_l_prev) and (didi_k > didi_l) if "didi_k" in locals() else False
+            di_cross_down = (didi_k_prev >= didi_l_prev) and (didi_k < didi_l) if "didi_k" in locals() else False
+            extra_dmi_bull = dp > dm
+            extra_dmi_bear = dm > dp
+            
+            didi_bull_confirmed = (didi_s > didi_l) and extra_dmi_bull
+            didi_bear_confirmed = (didi_s < didi_l) and extra_dmi_bear
+            
+            if direction == "CALL" and not didi_bull_confirmed:
+                direction = "NEUTRO"
+                entry_filter_reasons.append("DIDI_INDEX_SEM_CONFIRMACAO_DE_ALTA")
+            elif direction == "PUT" and not didi_bear_confirmed:
+                direction = "NEUTRO"
+                entry_filter_reasons.append("DIDI_INDEX_SEM_CONFIRMACAO_DE_BAIXA")
+
         if opposing_force_detected:
             resumed_in_candidate_direction = bool(
                 last_candle_direction == direction
@@ -1047,15 +1048,15 @@ def analyze_candles(candles: list[dict]) -> dict:
     )
     di_cross_up = (
         float(plus_di_series.iloc[ip]) <= float(minus_di_series.iloc[ip])
-        and extra_dmi_bull
+        and extra_dmi_bull if "extra_dmi_bull" in locals() else dp > dm
     )
     di_cross_down = (
         float(plus_di_series.iloc[ip]) >= float(minus_di_series.iloc[ip])
-        and extra_dmi_bear
+        and extra_dmi_bear if "extra_dmi_bear" in locals() else dm > dp
     )
 
     indicators = {
-        "strategy_version": "V5_MODIFIED_OG_KDJ_RSI_COG",
+        "strategy_version": "V5_MODIFIED_DIDI_TRIGGER_ONLY",
         "price_action_pattern": advanced_structure["price_action_pattern"],
         "price_action_direction": advanced_structure["price_action_direction"],
         "bos_choch": advanced_structure["bos_choch"],
