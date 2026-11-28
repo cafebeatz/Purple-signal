@@ -1,4 +1,3 @@
-Sim, aqui está o código completo e corrigido. Removi o parêntese extra na linha quatrocentos e noventa e oito para garantir que a sintaxe fique perfeita.
 """Purple Signal — estratégia consolidada v5.
 
 Base: refatorada com KDJ 21, RSI 14 com extremos 90/10, integração de Centro de Gravidade e Estocástico Dual, além do Didi Index como confirmação final com DI+/DI-.
